@@ -16,16 +16,13 @@ def check_password():
         st.session_state.auth_ok = False
 
     if not st.session_state.auth_ok:
-        with st.form("Passwort erforderlich"):
-            password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
-            submitted = st.form_submit_button("Einloggen")
-            if submitted:
-                if hash_password(password) == correct_password:
-                    st.session_state.auth_ok = True
-                    st.experimental_rerun()
-                else:
-                    st.error("❌ Falsches Passwort")
-        st.stop()
+        password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
+        if hashlib.sha256(password.encode()).hexdigest() == correct_password:
+            st.session_state.auth_ok = True
+            st.success("✅ Eingeloggt.")
+        else:
+            st.error("❌ Falsches Passwort")
+            st.stop()
 
 check_password()
 
