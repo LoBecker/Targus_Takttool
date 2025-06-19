@@ -173,8 +173,8 @@ def lade_und_verarbeite_datei(uploaded_file):
         st.info("⬆️ Lade eine Datei hoch, um zu starten.")
     return df
 
-# --- Upload UI ---
-def zeige_header_mit_upload():
+# --- Logo und Titel anzeigen ---
+def zeige_logo_und_titel():
     logo_path = Path(get_abs_path("Logo_Targus.png"))
     if logo_path.exists():
         logo_bytes = logo_path.read_bytes()
@@ -183,34 +183,46 @@ def zeige_header_mit_upload():
     else:
         logo_html = '<div style="width:60px; height:60px; background:#ccc;"></div>'
 
-    col_logo, col_title, col_upload = st.columns([1, 2, 1])
-
+    col_logo, col_title, _ = st.columns([1, 3, 1])
     with col_logo:
         st.markdown(logo_html, unsafe_allow_html=True)
-
     with col_title:
         st.markdown("<h1>Takttool | Montage- & Personalplanung</h1>", unsafe_allow_html=True)
 
-    with col_upload:
-        uploaded_file = st.file_uploader("", type=["csv", "xlsx"], label_visibility="collapsed")
-        return uploaded_file
+zeige_logo_und_titel()
 
-# --- App Start ---
-
+# --- Upload-Felder für vier Linien ---
+st.markdown("### 📁 Daten je Linie hochladen")
 
 col1, col2 = st.columns(2)
-with col1:
-    file_ew1 = st.file_uploader("Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
-    file_ew2 = st.file_uploader("Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
-with col2:
-    file_mw1 = st.file_uploader("Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
-    file_mw2 = st.file_uploader("Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
 
+with col1:
+    file_ew1 = st.file_uploader("📤 Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
+    file_ew2 = st.file_uploader("📤 Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
+
+with col2:
+    file_mw1 = st.file_uploader("📤 Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
+    file_mw2 = st.file_uploader("📤 Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
+
+# --- Datenverarbeitung ---
 df_ew1 = lade_und_verarbeite_datei(file_ew1)
 df_ew2 = lade_und_verarbeite_datei(file_ew2)
 df_mw1 = lade_und_verarbeite_datei(file_mw1)
 df_mw2 = lade_und_verarbeite_datei(file_mw2)
 
+# --- Sicherheitsnetz: Spalten ergänzen ---
+minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt"]
+
+def ergänze_fehlende_spalten(df):
+    for spalte in minimale_spalten:
+        if spalte not in df.columns:
+            df[spalte] = ""
+    return df
+
+df_ew1 = ergänze_fehlende_spalten(df_ew1)
+df_ew2 = ergänze_fehlende_spalten(df_ew2)
+df_mw1 = ergänze_fehlende_spalten(df_mw1)
+df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
 # Sicherheitsnetz: fehlende Spalten ergänzen
 minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt"]
