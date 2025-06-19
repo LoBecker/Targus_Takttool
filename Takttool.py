@@ -3,9 +3,10 @@ import streamlit as st
 # Muss als ALLERERSTES kommen!
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 # --- Passwortschutz ---
-import hashlib
 import streamlit as st
+import hashlib
 
+# --- Passwortschutz ---
 def check_password():
     def hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
@@ -16,22 +17,22 @@ def check_password():
         st.session_state["auth_ok"] = False
 
     if not st.session_state["auth_ok"]:
-        st.markdown("## 🔐 Geschützter Bereich")
         with st.form("login_form"):
+            st.markdown("## 🔐 Geschützter Bereich")
             password = st.text_input("Bitte Passwort eingeben", type="password")
             submitted = st.form_submit_button("Einloggen")
             if submitted:
                 if hash_password(password) == correct_password:
                     st.session_state["auth_ok"] = True
-                    st.success("✅ Login erfolgreich")
+                    st.success("✅ Login erfolgreich – bitte kurz warten ...")
+                    st.experimental_rerun()
                 else:
                     st.error("❌ Falsches Passwort")
                     st.stop()
         st.stop()
 
+# --- Login aufrufen ---
 check_password()
-
-
 
 import time
 import pandas as pd
