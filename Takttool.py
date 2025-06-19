@@ -13,20 +13,18 @@ def check_password():
     correct_password = hash_password("Targus2025!")
 
     if "auth_ok" not in st.session_state:
-        st.session_state.auth_ok = False
+        st.session_state["auth_ok"] = False
 
-    if not st.session_state.auth_ok:
-        with st.form("Passwortformular"):
-            password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
-            submitted = st.form_submit_button("Einloggen")
-            if submitted:
-                if hash_password(password) == correct_password:
-                    st.session_state.auth_ok = True
-                    st.success("✅ Erfolgreich eingeloggt.")
-                    st.experimental_rerun()  # Lokaler rerun funktioniert, Cloud optional
-                else:
-                    st.error("❌ Falsches Passwort")
+    if not st.session_state["auth_ok"]:
+        password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
+        if password:
+            if hash_password(password) == correct_password:
+                st.session_state["auth_ok"] = True
+                st.success("✅ Erfolgreich eingeloggt.")
+            else:
+                st.error("❌ Falsches Passwort")
         st.stop()
+
 
 
 check_password()
