@@ -22,7 +22,7 @@ def check_password():
             if submitted:
                 if hash_password(password) == correct_password:
                     st.session_state["auth_ok"] = True
-                    st.success("✅ Passwort korrekt,Herzlich willkommen: Bitte einloggen")
+                    st.success("✅ Bitte erneut einloggen")
                 else:
                     st.error("❌ Falsches Passwort")
                     st.stop()
@@ -196,8 +196,21 @@ def zeige_header_mit_upload():
         return uploaded_file
 
 # --- App Start ---
-uploaded_file = zeige_header_mit_upload()
-df = lade_und_verarbeite_datei(uploaded_file)
+st.markdown("### 📁 Daten je Linie hochladen")
+
+col1, col2 = st.columns(2)
+with col1:
+    file_ew1 = st.file_uploader("Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
+    file_ew2 = st.file_uploader("Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
+with col2:
+    file_mw1 = st.file_uploader("Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
+    file_mw2 = st.file_uploader("Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
+
+df_ew1 = lade_und_verarbeite_datei(file_ew1)
+df_ew2 = lade_und_verarbeite_datei(file_ew2)
+df_mw1 = lade_und_verarbeite_datei(file_mw1)
+df_mw2 = lade_und_verarbeite_datei(file_mw2)
+
 
 # Sicherheitsnetz: fehlende Spalten ergänzen
 minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt"]
@@ -209,7 +222,7 @@ for spalte in minimale_spalten:
 st.divider()
 
 # --- Tabs erstellen ---
-tab1, tab2 = st.tabs(["Montageplanung", "Personalplanung"])
+tab1, tab2, tab3, tab4, tb5 = st.tabs(["Montageplanung EW1", "Montageplanung EW2", "Montageplanung MW1", "Montageplanung MW2", "Personalplanung"])
 
 # --- Feiertage (als date-Objekte) ---
 FEIERTAGE = [
@@ -235,7 +248,7 @@ def arbeitstag_ab(start: datetime.date, tage: int):
 # --- Tab 1: Montageplanung ---
 
 with tab1:
-    
+    df = df_ew1
     # --- Startdatum und Zeitraum nebeneinander ---
     col_links, col_rechts = st.columns([1, 3])
 
@@ -363,8 +376,394 @@ with tab1:
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
-
 with tab2:
+    df = df_ew2
+    # --- Startdatum und Zeitraum nebeneinander ---
+    col_links, col_rechts = st.columns([1, 3])
+
+    with col_links:
+        st.markdown("#### Startdatum der Planung ")
+        startdatum = st.date_input("Startdatum", value=datetime.today(), key="startdatum_input")
+
+    with col_rechts:
+        st.markdown("#### Zeitraum wählen")
+        tag_takt_list = sorted(df["Tag_Takt"].unique(), key=lambda x: (int(x.split("_T")[0]), int(x.split("_T")[1])))
+        idx_min, idx_max = 0, len(tag_takt_list) - 1
+
+        takt_range = st.slider(
+            "Tag_Takt auswählen",
+            min_value=idx_min,
+            max_value=idx_max,
+            value=(idx_min, idx_max),
+            key="montage_slider"
+        )
+
+    selected_tag_takte = tag_takt_list[takt_range[0]:takt_range[1] + 1]
+
+    # --- Zeitzuordnung (Start/Ende berechnen) ---
+    df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
+    tag_mapping = {
+        tag: arbeitstag_ab(startdatum, tag - 1)
+        for tag in sorted(df["Tag (MAP)"].unique())
+    }
+    df["Start_Datum"] = df["Tag (MAP)"].map(tag_mapping)
+    df["Start"] = pd.to_datetime(df["Start_Datum"]) + pd.to_timedelta(6, unit='h')
+    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"], unit="h")
+
+    # --- Filter auf Auswahl anwenden ---
+    df_filtered = df[df["Tag_Takt"].isin(selected_tag_takte)].copy()
+    # --- Tabelle und Gantt nebeneinander ---
+    
+    col_table, col_gantt = st.columns([1.2, 1.8])
+
+    with col_table:
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        edited_df = st.data_editor(
+            df_filtered,
+            use_container_width=True,
+            num_rows="dynamic",
+            hide_index=True
+        )
+
+        if not edited_df.equals(df_filtered):
+            df.update(edited_df)
+            speichere_daten(df)
+            st.success("Änderungen gespeichert.")
+
+    with col_gantt:
+        
+        if not df_filtered.empty:
+            fig_gantt = px.timeline(
+                df_filtered,
+                x_start="Start",
+                x_end="Ende",
+                y="Inhalt",
+                color="Qualifikation",
+                title="Ablaufplanung"
+            )
+            fig_gantt.update_yaxes(autorange="reversed")
+            fig_gantt.update_layout(
+                plot_bgcolor="#1a1a1a",
+                paper_bgcolor="#1a1a1a",
+                font_color="#ffffff",
+                height=600
+            )
+            st.plotly_chart(fig_gantt, use_container_width=True)
+        else:
+            st.info("Keine Daten für Gantt-Diagramm.")
+    
+        # --- Statistiken und Diagramme ---
+    st.divider()
+    
+
+    if not df_filtered.empty:
+        df_filtered["Tag (MAP)"] = df_filtered["Tag (MAP)"].astype(int)
+
+        # Datenbereiche definieren
+        bereich_1 = df_filtered[df_filtered["Tag (MAP)"].between(0, 7)]
+        bereich_2 = df_filtered[df_filtered["Tag (MAP)"].between(8, 14)]
+        bereich_3 = df_filtered[df_filtered["Tag (MAP)"].between(15, 21)]
+
+        # Gruppierung
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
+
+        bauraum_data = [gruppiere(bereich_1, "Bauraum"), gruppiere(bereich_2, "Bauraum"), gruppiere(bereich_3, "Bauraum")]
+        quali_data   = [gruppiere(bereich_1, "Qualifikation"), gruppiere(bereich_2, "Qualifikation"), gruppiere(bereich_3, "Qualifikation")]
+        titel_map = ["Takt 1", "Takt 2", "Takt 3"]
+
+
+        col_bauraum, col_qualifikation = st.columns(2)
+
+        with col_bauraum:
+            st.markdown("### Stunden nach Bauraum")
+            for i, df_plot in enumerate(bauraum_data):
+                fig = px.bar(
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Bauraum",
+                    barmode="stack", title=titel_map[i], height=300
+                )
+                fig.update_layout(
+                    plot_bgcolor="#1a1a1a",
+                    paper_bgcolor="#1a1a1a",
+                    font_color="#ffffff"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col_qualifikation:
+            st.markdown("###  Stunden nach Qualifikation")
+            for i, df_plot in enumerate(quali_data):
+                fig = px.bar(
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Qualifikation",
+                    barmode="stack", title=titel_map[i], height=300
+                )
+                fig.update_layout(
+                    plot_bgcolor="#1a1a1a",
+                    paper_bgcolor="#1a1a1a",
+                    font_color="#ffffff"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Keine Daten für Statistiken vorhanden.")
+
+with tab3:
+    df = df_ew3
+    # --- Startdatum und Zeitraum nebeneinander ---
+    col_links, col_rechts = st.columns([1, 3])
+
+    with col_links:
+        st.markdown("#### Startdatum der Planung ")
+        startdatum = st.date_input("Startdatum", value=datetime.today(), key="startdatum_input")
+
+    with col_rechts:
+        st.markdown("#### Zeitraum wählen")
+        tag_takt_list = sorted(df["Tag_Takt"].unique(), key=lambda x: (int(x.split("_T")[0]), int(x.split("_T")[1])))
+        idx_min, idx_max = 0, len(tag_takt_list) - 1
+
+        takt_range = st.slider(
+            "Tag_Takt auswählen",
+            min_value=idx_min,
+            max_value=idx_max,
+            value=(idx_min, idx_max),
+            key="montage_slider"
+        )
+
+    selected_tag_takte = tag_takt_list[takt_range[0]:takt_range[1] + 1]
+
+    # --- Zeitzuordnung (Start/Ende berechnen) ---
+    df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
+    tag_mapping = {
+        tag: arbeitstag_ab(startdatum, tag - 1)
+        for tag in sorted(df["Tag (MAP)"].unique())
+    }
+    df["Start_Datum"] = df["Tag (MAP)"].map(tag_mapping)
+    df["Start"] = pd.to_datetime(df["Start_Datum"]) + pd.to_timedelta(6, unit='h')
+    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"], unit="h")
+
+    # --- Filter auf Auswahl anwenden ---
+    df_filtered = df[df["Tag_Takt"].isin(selected_tag_takte)].copy()
+    # --- Tabelle und Gantt nebeneinander ---
+    
+    col_table, col_gantt = st.columns([1.2, 1.8])
+
+    with col_table:
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        edited_df = st.data_editor(
+            df_filtered,
+            use_container_width=True,
+            num_rows="dynamic",
+            hide_index=True
+        )
+
+        if not edited_df.equals(df_filtered):
+            df.update(edited_df)
+            speichere_daten(df)
+            st.success("Änderungen gespeichert.")
+
+    with col_gantt:
+        
+        if not df_filtered.empty:
+            fig_gantt = px.timeline(
+                df_filtered,
+                x_start="Start",
+                x_end="Ende",
+                y="Inhalt",
+                color="Qualifikation",
+                title="Ablaufplanung"
+            )
+            fig_gantt.update_yaxes(autorange="reversed")
+            fig_gantt.update_layout(
+                plot_bgcolor="#1a1a1a",
+                paper_bgcolor="#1a1a1a",
+                font_color="#ffffff",
+                height=600
+            )
+            st.plotly_chart(fig_gantt, use_container_width=True)
+        else:
+            st.info("Keine Daten für Gantt-Diagramm.")
+    
+        # --- Statistiken und Diagramme ---
+    st.divider()
+    
+
+    if not df_filtered.empty:
+        df_filtered["Tag (MAP)"] = df_filtered["Tag (MAP)"].astype(int)
+
+        # Datenbereiche definieren
+        bereich_1 = df_filtered[df_filtered["Tag (MAP)"].between(0, 7)]
+        bereich_2 = df_filtered[df_filtered["Tag (MAP)"].between(8, 14)]
+        bereich_3 = df_filtered[df_filtered["Tag (MAP)"].between(15, 21)]
+
+        # Gruppierung
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
+
+        bauraum_data = [gruppiere(bereich_1, "Bauraum"), gruppiere(bereich_2, "Bauraum"), gruppiere(bereich_3, "Bauraum")]
+        quali_data   = [gruppiere(bereich_1, "Qualifikation"), gruppiere(bereich_2, "Qualifikation"), gruppiere(bereich_3, "Qualifikation")]
+        titel_map = ["Takt 1", "Takt 2", "Takt 3"]
+
+
+        col_bauraum, col_qualifikation = st.columns(2)
+
+        with col_bauraum:
+            st.markdown("### Stunden nach Bauraum")
+            for i, df_plot in enumerate(bauraum_data):
+                fig = px.bar(
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Bauraum",
+                    barmode="stack", title=titel_map[i], height=300
+                )
+                fig.update_layout(
+                    plot_bgcolor="#1a1a1a",
+                    paper_bgcolor="#1a1a1a",
+                    font_color="#ffffff"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col_qualifikation:
+            st.markdown("###  Stunden nach Qualifikation")
+            for i, df_plot in enumerate(quali_data):
+                fig = px.bar(
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Qualifikation",
+                    barmode="stack", title=titel_map[i], height=300
+                )
+                fig.update_layout(
+                    plot_bgcolor="#1a1a1a",
+                    paper_bgcolor="#1a1a1a",
+                    font_color="#ffffff"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Keine Daten für Statistiken vorhanden.")
+
+with tab4:
+    df = df_ew4
+    # --- Startdatum und Zeitraum nebeneinander ---
+    col_links, col_rechts = st.columns([1, 3])
+
+    with col_links:
+        st.markdown("#### Startdatum der Planung ")
+        startdatum = st.date_input("Startdatum", value=datetime.today(), key="startdatum_input")
+
+    with col_rechts:
+        st.markdown("#### Zeitraum wählen")
+        tag_takt_list = sorted(df["Tag_Takt"].unique(), key=lambda x: (int(x.split("_T")[0]), int(x.split("_T")[1])))
+        idx_min, idx_max = 0, len(tag_takt_list) - 1
+
+        takt_range = st.slider(
+            "Tag_Takt auswählen",
+            min_value=idx_min,
+            max_value=idx_max,
+            value=(idx_min, idx_max),
+            key="montage_slider"
+        )
+
+    selected_tag_takte = tag_takt_list[takt_range[0]:takt_range[1] + 1]
+
+    # --- Zeitzuordnung (Start/Ende berechnen) ---
+    df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
+    tag_mapping = {
+        tag: arbeitstag_ab(startdatum, tag - 1)
+        for tag in sorted(df["Tag (MAP)"].unique())
+    }
+    df["Start_Datum"] = df["Tag (MAP)"].map(tag_mapping)
+    df["Start"] = pd.to_datetime(df["Start_Datum"]) + pd.to_timedelta(6, unit='h')
+    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"], unit="h")
+
+    # --- Filter auf Auswahl anwenden ---
+    df_filtered = df[df["Tag_Takt"].isin(selected_tag_takte)].copy()
+    # --- Tabelle und Gantt nebeneinander ---
+    
+    col_table, col_gantt = st.columns([1.2, 1.8])
+
+    with col_table:
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        edited_df = st.data_editor(
+            df_filtered,
+            use_container_width=True,
+            num_rows="dynamic",
+            hide_index=True
+        )
+
+        if not edited_df.equals(df_filtered):
+            df.update(edited_df)
+            speichere_daten(df)
+            st.success("Änderungen gespeichert.")
+
+    with col_gantt:
+        
+        if not df_filtered.empty:
+            fig_gantt = px.timeline(
+                df_filtered,
+                x_start="Start",
+                x_end="Ende",
+                y="Inhalt",
+                color="Qualifikation",
+                title="Ablaufplanung"
+            )
+            fig_gantt.update_yaxes(autorange="reversed")
+            fig_gantt.update_layout(
+                plot_bgcolor="#1a1a1a",
+                paper_bgcolor="#1a1a1a",
+                font_color="#ffffff",
+                height=600
+            )
+            st.plotly_chart(fig_gantt, use_container_width=True)
+        else:
+            st.info("Keine Daten für Gantt-Diagramm.")
+    
+        # --- Statistiken und Diagramme ---
+    st.divider()
+    
+
+    if not df_filtered.empty:
+        df_filtered["Tag (MAP)"] = df_filtered["Tag (MAP)"].astype(int)
+
+        # Datenbereiche definieren
+        bereich_1 = df_filtered[df_filtered["Tag (MAP)"].between(0, 7)]
+        bereich_2 = df_filtered[df_filtered["Tag (MAP)"].between(8, 14)]
+        bereich_3 = df_filtered[df_filtered["Tag (MAP)"].between(15, 21)]
+
+        # Gruppierung
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
+
+        bauraum_data = [gruppiere(bereich_1, "Bauraum"), gruppiere(bereich_2, "Bauraum"), gruppiere(bereich_3, "Bauraum")]
+        quali_data   = [gruppiere(bereich_1, "Qualifikation"), gruppiere(bereich_2, "Qualifikation"), gruppiere(bereich_3, "Qualifikation")]
+        titel_map = ["Takt 1", "Takt 2", "Takt 3"]
+
+
+        col_bauraum, col_qualifikation = st.columns(2)
+
+        with col_bauraum:
+            st.markdown("### Stunden nach Bauraum")
+            for i, df_plot in enumerate(bauraum_data):
+                fig = px.bar(
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Bauraum",
+                    barmode="stack", title=titel_map[i], height=300
+                )
+                fig.update_layout(
+                    plot_bgcolor="#1a1a1a",
+                    paper_bgcolor="#1a1a1a",
+                    font_color="#ffffff"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col_qualifikation:
+            st.markdown("###  Stunden nach Qualifikation")
+            for i, df_plot in enumerate(quali_data):
+                fig = px.bar(
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Qualifikation",
+                    barmode="stack", title=titel_map[i], height=300
+                )
+                fig.update_layout(
+                    plot_bgcolor="#1a1a1a",
+                    paper_bgcolor="#1a1a1a",
+                    font_color="#ffffff"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Keine Daten für Statistiken vorhanden.")
+
+with tab5:
 
     if not df.empty:
         # --- Auswahl: 5 oder 7 Tage Planung ---
