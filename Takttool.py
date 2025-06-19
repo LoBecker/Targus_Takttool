@@ -22,7 +22,7 @@ def check_password():
             if submitted:
                 if hash_password(password) == correct_password:
                     st.session_state["auth_ok"] = True
-                    st.success("✅ Login erfolgreich")
+                    st.success("✅ Passwort korrekt,Herzlich willkommen: Bitte einloggen")
                 else:
                     st.error("❌ Falsches Passwort")
                     st.stop()
