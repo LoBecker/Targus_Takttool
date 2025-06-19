@@ -9,6 +9,9 @@ import hashlib
 ddef check_password():
     import hashlib
 
+   def check_password():
+    import hashlib
+
     def hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
 
@@ -18,22 +21,18 @@ ddef check_password():
         st.session_state["auth_ok"] = False
 
     if not st.session_state["auth_ok"]:
-        st.markdown("## 🔐 Zugriff geschützt")
-        password = st.text_input("Bitte Passwort eingeben", type="password")
+        password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
 
-        if password:
-            if hash_password(password) == correct_password:
-                st.session_state["auth_ok"] = True
-                st.success("✅ Erfolgreich eingeloggt.")
-                st.stop()  # bricht hier ab – nächstes Rendern geht weiter (ohne Passwortfeld)
-            else:
-                st.error("❌ Falsches Passwort")
-                st.stop()  # bleibt auf Loginseite
+        if not password:
+            st.stop()
+
+        if hash_password(password) == correct_password:
+            st.session_state["auth_ok"] = True
+            st.success("✅ Login erfolgreich.")
+            st.stop()  # Stoppen → nächster Reload zeigt App
         else:
-            st.stop()  # kein Passwort eingegeben = warten
-
-
-
+            st.error("❌ Falsches Passwort")
+            st.stop()
 
 check_password()
 
