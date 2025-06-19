@@ -170,6 +170,7 @@ def lade_und_verarbeite_datei(uploaded_file):
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     else:
+        pass  # absichtlich nichts tun
        
     return df
 
