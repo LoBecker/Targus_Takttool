@@ -170,7 +170,7 @@ def lade_und_verarbeite_datei(uploaded_file):
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     else:
-        st.info("⬆️ Lade eine Datei hoch, um zu starten.")
+       
     return df
 
 # --- Logo und Titel anzeigen ---
@@ -192,17 +192,17 @@ def zeige_logo_und_titel():
 zeige_logo_und_titel()
 
 # --- Upload-Felder für vier Linien ---
-st.markdown("### 📁 Daten je Linie hochladen")
+
 
 col1, col2 = st.columns(2)
 
 with col1:
-    file_ew1 = st.file_uploader("📤 Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
-    file_ew2 = st.file_uploader("📤 Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
+    file_ew1 = st.file_uploader("Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
+    file_ew2 = st.file_uploader("Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
 
 with col2:
-    file_mw1 = st.file_uploader("📤 Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
-    file_mw2 = st.file_uploader("📤 Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
+    file_mw1 = st.file_uploader("Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
+    file_mw2 = st.file_uploader("Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
 
 # --- Datenverarbeitung ---
 df_ew1 = lade_und_verarbeite_datei(file_ew1)
@@ -224,19 +224,6 @@ df_ew2 = ergänze_fehlende_spalten(df_ew2)
 df_mw1 = ergänze_fehlende_spalten(df_mw1)
 df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
-# Sicherheitsnetz: fehlende Spalten ergänzen
-minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt"]
-
-def ergänze_fehlende_spalten(df):
-    for spalte in minimale_spalten:
-        if spalte not in df.columns:
-            df[spalte] = ""
-    return df
-
-df_ew1 = ergänze_fehlende_spalten(df_ew1)
-df_ew2 = ergänze_fehlende_spalten(df_ew2)
-df_mw1 = ergänze_fehlende_spalten(df_mw1)
-df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
 # Tabs vorbereiten – egal ob Daten oder nicht
 st.divider()
