@@ -214,9 +214,17 @@ df_mw2 = lade_und_verarbeite_datei(file_mw2)
 
 # Sicherheitsnetz: fehlende Spalten ergänzen
 minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt"]
-for spalte in minimale_spalten:
-    if spalte not in df.columns:
-        df[spalte] = ""
+
+def ergänze_fehlende_spalten(df):
+    for spalte in minimale_spalten:
+        if spalte not in df.columns:
+            df[spalte] = ""
+    return df
+
+df_ew1 = ergänze_fehlende_spalten(df_ew1)
+df_ew2 = ergänze_fehlende_spalten(df_ew2)
+df_mw1 = ergänze_fehlende_spalten(df_mw1)
+df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
 # Tabs vorbereiten – egal ob Daten oder nicht
 st.divider()
