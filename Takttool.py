@@ -31,7 +31,7 @@ def check_password():
             st.error("❌ Falsches Passwort")
             st.stop()
     
-    check_password()
+check_password()
 
 import time
 import pandas as pd
