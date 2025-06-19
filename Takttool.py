@@ -43,85 +43,76 @@ from pathlib import Path
 # Ladebildschirm nur beim allerersten Start zeigen
 if "geladen" not in st.session_state:
     st.markdown("""
-        <style>
-        .loader {
-          border: 8px solid #f3f3f3;
-          border-top: 8px solid #0B3F75;
-          border-radius: 50%;
-          width: 80px;
-          height: 80px;
-          animation: spin 1s linear infinite;
-          margin: auto;
-        }
-
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        </style>
-
-        <div style='display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px;'>
-            <div class='loader'></div>
-            <p style='color: white; margin-top: 20px;'>Takttool wird geladen...</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    time.sleep(2)
-    st.session_state["geladen"] = True
-    st.rerun()
-
-# --- Dark Theme + Tabs Styling ---
-st.markdown("""
-<style>
-html, body, [data-testid="stApp"] {
-    background-color: #1a1a1a;
-    color: #ffffff;
-    font-family: 'Segoe UI', sans-serif;
-}
-
-h1, h2, h3 {
-    color: #CC0000;
-    text-align: center;
-}
-
-.upload-box {
-    background-color: #2a2a2a;
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    text-align: right;
-}
-
-.stDataFrameContainer {
-    border-radius: 10px;
-    border: 1px solid #444;
-}
-
-div[data-baseweb="tabs"] {
-    margin-top: 1rem;
-}
-
-button[data-baseweb="tab"] {
-    font-size: 22px !important;
-    padding: 18px 24px !important;
-    margin: 0 !important;
-    height: auto !important;
-    border-radius: 0 !important;
-    border: none !important;
-    background-color: #2a2a2a !important;
-    color: #ddd !important;
-    transition: background-color 0.3s ease;
-}
-
-button[data-baseweb="tab"][aria-selected="true"] {
-    background-color: #CC0000 !important;
-    color: white !important;
-    font-weight: bold;
-}
-
-button[data-baseweb="tab"] + button[data-baseweb="tab"] {
-    border-left: 1px solid #1a1a1a;
-}
-</style>
+    <style>
+    /* Dark Theme + Schrift */
+    html, body, [data-testid="stApp"] {
+        background-color: #1a1a1a;
+        color: #ffffff;
+        font-family: 'Segoe UI', sans-serif;
+    }
+    
+    /* Headline-Styling */
+    h1, h2, h3 {
+        color: #CC0000;
+        text-align: center;
+    }
+    
+    /* Upload-Box */
+    .upload-box {
+        background-color: #2a2a2a;
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        text-align: right;
+    }
+    
+    /* DataFrame-Container */
+    .stDataFrameContainer {
+        border-radius: 10px;
+        border: 1px solid #444;
+    }
+    
+    /* Tabs */
+    div[data-baseweb="tabs"] {
+        margin-top: 1rem;
+    }
+    
+    button[data-baseweb="tab"] {
+        font-size: 22px !important;
+        padding: 18px 24px !important;
+        margin: 0 !important;
+        height: auto !important;
+        border-radius: 0 !important;
+        border: none !important;
+        background-color: #2a2a2a !important;
+        color: #ddd !important;
+        transition: background-color 0.3s ease;
+    }
+    
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background-color: #CC0000 !important;
+        color: white !important;
+        font-weight: bold;
+    }
+    
+    button[data-baseweb="tab"] + button[data-baseweb="tab"] {
+        border-left: 1px solid #1a1a1a;
+    }
+    
+    /* Entfernt dünnen Streifen ganz oben */
+    [data-testid="stHeader"] {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        height: 0px !important;
+    }
+    
+    /* Weitere Absicherung */
+    header, .st-emotion-cache-18ni7ap {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+    </style>
 """, unsafe_allow_html=True)
 
 
