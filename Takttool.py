@@ -21,9 +21,12 @@ def check_password():
             if hash_password(password) == correct_password:
                 st.session_state["auth_ok"] = True
                 st.success("✅ Erfolgreich eingeloggt.")
+                # Kein st.stop() mehr nötig – wir lassen Streamlit neu laden
             else:
                 st.error("❌ Falsches Passwort")
-        st.stop()
+                st.stop()  # Nur bei falschem Passwort abbrechen
+        else:
+            st.stop()  # Kein Passwort eingegeben – abbrechen
 
 
 
