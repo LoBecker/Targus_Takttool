@@ -6,7 +6,9 @@ st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout=
 import streamlit as st
 import hashlib
 
-def check_password():
+ddef check_password():
+    import hashlib
+
     def hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
 
@@ -16,17 +18,20 @@ def check_password():
         st.session_state["auth_ok"] = False
 
     if not st.session_state["auth_ok"]:
-        password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
+        st.markdown("## 🔐 Zugriff geschützt")
+        password = st.text_input("Bitte Passwort eingeben", type="password")
+
         if password:
             if hash_password(password) == correct_password:
                 st.session_state["auth_ok"] = True
                 st.success("✅ Erfolgreich eingeloggt.")
-                # Kein st.stop() mehr nötig – wir lassen Streamlit neu laden
+                st.stop()  # bricht hier ab – nächstes Rendern geht weiter (ohne Passwortfeld)
             else:
                 st.error("❌ Falsches Passwort")
-                st.stop()  # Nur bei falschem Passwort abbrechen
+                st.stop()  # bleibt auf Loginseite
         else:
-            st.stop()  # Kein Passwort eingegeben – abbrechen
+            st.stop()  # kein Passwort eingegeben = warten
+
 
 
 
