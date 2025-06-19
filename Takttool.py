@@ -196,7 +196,7 @@ def zeige_header_mit_upload():
         return uploaded_file
 
 # --- App Start ---
-st.markdown("### 📁 Daten je Linie hochladen")
+
 
 col1, col2 = st.columns(2)
 with col1:
