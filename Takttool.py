@@ -32,7 +32,7 @@ def check_password():
             st.stop()
         else:
             st.stop()
-
+check_password()
 
 import time
 import pandas as pd
