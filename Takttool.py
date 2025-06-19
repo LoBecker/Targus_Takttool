@@ -183,7 +183,7 @@ def lade_und_verarbeite_datei(uploaded_file):
 
 # --- Upload UI ---
 def zeige_header_mit_upload():
-    logo_path = Path(get_abs_path("logo_Targus.png"))
+    logo_path = Path(get_abs_path("Logo_Targus.png"))
     if logo_path.exists():
         logo_bytes = logo_path.read_bytes()
         logo_base64 = base64.b64encode(logo_bytes).decode()
@@ -215,9 +215,6 @@ for spalte in minimale_spalten:
 
 # Tabs vorbereiten – egal ob Daten oder nicht
 st.divider()
-
-
-# ... Ab hier geht deine restliche App-Logik los (Tabs, Visualisierungen, etc.) ...
 
 # --- Tabs erstellen ---
 tab1, tab2 = st.tabs(["Montageplanung", "Personalplanung"])
