@@ -7,31 +7,35 @@ import streamlit as st
 import hashlib
 
 def check_password():
-    import hashlib
-
     def hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
-    
+
     correct_password = hash_password("Targus2025!")
-    
+
+    # Session-State initialisieren
     if "auth_ok" not in st.session_state:
         st.session_state["auth_ok"] = False
-    
+
+    # Wenn nicht eingeloggt → Passwort anzeigen
     if not st.session_state["auth_ok"]:
-        password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
-    
+        st.markdown("## 🔐 Geschützter Bereich")
+        password = st.text_input("Bitte Passwort eingeben", type="password")
+
+        # Noch nichts eingegeben
         if not password:
             st.stop()
-    
+
+        # Prüfung
         if hash_password(password) == correct_password:
             st.session_state["auth_ok"] = True
-            st.success("✅ Login erfolgreich.")
-            st.stop()  # Stoppen → nächster Reload zeigt App
+            st.experimental_rerun()  # Optional: entfernt das Passwortfeld sofort
         else:
             st.error("❌ Falsches Passwort")
             st.stop()
-    
+
+# Direkt nach set_page_config:
 check_password()
+
 
 import time
 import pandas as pd
