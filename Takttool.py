@@ -6,7 +6,7 @@ st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout=
 import streamlit as st
 import hashlib
 
-ddef check_password():
+def check_password():
     import hashlib
 
    def check_password():
