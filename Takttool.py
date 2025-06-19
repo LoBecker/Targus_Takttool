@@ -3,8 +3,8 @@ import streamlit as st
 # Muss als ALLERERSTES kommen!
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 # --- Passwortschutz ---
-import streamlit as st
 import hashlib
+import streamlit as st
 
 def check_password():
     def hash_password(password):
@@ -12,26 +12,23 @@ def check_password():
 
     correct_password = hash_password("Targus2025!")
 
-    # Session initialisieren
     if "auth_ok" not in st.session_state:
         st.session_state["auth_ok"] = False
-        st.session_state["password_entered"] = False
 
-    # Wenn nicht eingeloggt → Passwortfeld anzeigen
     if not st.session_state["auth_ok"]:
-        if not st.session_state["password_entered"]:
-            st.markdown("## 🔐 Geschützter Bereich")
+        st.markdown("## 🔐 Geschützter Bereich")
+        with st.form("login_form"):
             password = st.text_input("Bitte Passwort eingeben", type="password")
-            if password:
-                st.session_state["password_entered"] = True
+            submitted = st.form_submit_button("Einloggen")
+            if submitted:
                 if hash_password(password) == correct_password:
                     st.session_state["auth_ok"] = True
+                    st.success("✅ Login erfolgreich")
                 else:
                     st.error("❌ Falsches Passwort")
-                    st.session_state["password_entered"] = False
-            st.stop()
-        else:
-            st.stop()
+                    st.stop()
+        st.stop()
+
 check_password()
 
 
