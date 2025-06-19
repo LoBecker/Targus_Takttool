@@ -12,28 +12,27 @@ def check_password():
 
     correct_password = hash_password("Targus2025!")
 
-    # Session-Status initialisieren
+    # Session initialisieren
     if "auth_ok" not in st.session_state:
         st.session_state["auth_ok"] = False
+        st.session_state["password_entered"] = False
 
-    # Nur anzeigen, wenn noch nicht eingeloggt
+    # Wenn nicht eingeloggt → Passwortfeld anzeigen
     if not st.session_state["auth_ok"]:
-        st.markdown("## 🔐 Geschützter Bereich")
-        password = st.text_input("Bitte Passwort eingeben", type="password")
-
-        if password == "":
+        if not st.session_state["password_entered"]:
+            st.markdown("## 🔐 Geschützter Bereich")
+            password = st.text_input("Bitte Passwort eingeben", type="password")
+            if password:
+                st.session_state["password_entered"] = True
+                if hash_password(password) == correct_password:
+                    st.session_state["auth_ok"] = True
+                else:
+                    st.error("❌ Falsches Passwort")
+                    st.session_state["password_entered"] = False
             st.stop()
-
-        if hash_password(password) == correct_password:
-            st.session_state["auth_ok"] = True
-            st.success("✅ Login erfolgreich.")
-            st.stop()  # Bricht ab → nächstes Laden ist Passwortfeld weg
         else:
-            st.error("❌ Falsches Passwort")
             st.stop()
 
-# Direkt nach set_page_config() aufrufen:
-check_password()
 
 
 
