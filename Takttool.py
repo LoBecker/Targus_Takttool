@@ -9,23 +9,20 @@ import hashlib
 def check_password():
     import hashlib
 
-   def check_password():
-    import hashlib
-
     def hash_password(password):
         return hashlib.sha256(password.encode()).hexdigest()
-
+    
     correct_password = hash_password("Targus2025!")
-
+    
     if "auth_ok" not in st.session_state:
         st.session_state["auth_ok"] = False
-
+    
     if not st.session_state["auth_ok"]:
         password = st.text_input("🔒 Bitte Passwort eingeben", type="password")
-
+    
         if not password:
             st.stop()
-
+    
         if hash_password(password) == correct_password:
             st.session_state["auth_ok"] = True
             st.success("✅ Login erfolgreich.")
@@ -33,8 +30,8 @@ def check_password():
         else:
             st.error("❌ Falsches Passwort")
             st.stop()
-
-check_password()
+    
+    check_password()
 
 import time
 import pandas as pd
