@@ -153,7 +153,10 @@ def lade_und_verarbeite_datei(uploaded_file):
 
             # Nur deutsches Komma behandeln, alles andere zu NaN → 0.1
             df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
-            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce").fillna(0.1)
+            df["Stunden"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
+            df["Stunden"] = pd.to_numeric(df["Stunden"], errors="coerce").fillna(0)
+            df["Stunden"] = df["Stunden"].apply(lambda x: max(x, 0.1))
+
 
             df["Tag_Takt"] = df["Tag (MAP)"].astype(str) + "_T" + df["Takt"].astype(str)
 
