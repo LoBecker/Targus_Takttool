@@ -43,43 +43,54 @@ from pathlib import Path
 
 # Ladebildschirm nur beim allerersten Start zeigen
 if "geladen" not in st.session_state:
-    st.markdown("""
+   st.markdown("""
     <style>
-    /* Dark Theme + Schrift */
+    /* === Allgemeiner Dark Mode === */
     html, body, [data-testid="stApp"] {
         background-color: #1a1a1a;
         color: #ffffff;
         font-family: 'Segoe UI', sans-serif;
     }
     
-    /* Headline-Styling */
+    /* === Headline-Styling === */
     h1, h2, h3 {
         color: #CC0000;
         text-align: center;
     }
     
-    /* Upload-Box */
-    .upload-box {
-        background-color: #2a2a2a;
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        text-align: right;
+    /* === Kompakte Upload-Felder === */
+    div[data-testid="stFileUploader"] > label {
+        font-size: 0.8rem;
+        padding-bottom: 0.25rem;
+        margin-bottom: 0.25rem;
     }
     
-    /* DataFrame-Container */
+    section[data-testid="stFileUploaderDropzone"] {
+        padding: 0.2rem 0.5rem;
+        background-color: #2a2a2a;
+        border: 1px solid #444;
+        border-radius: 6px;
+        text-align: center;
+    }
+    
+    div[data-testid="stFileUploader"] {
+        margin-bottom: 0.25rem;
+    }
+    
+    /* === Daten-Tabellen === */
     .stDataFrameContainer {
         border-radius: 10px;
         border: 1px solid #444;
     }
     
-    /* Tabs */
+    /* === Tabs (modern und klar) === */
     div[data-baseweb="tabs"] {
         margin-top: 1rem;
     }
     
     button[data-baseweb="tab"] {
-        font-size: 22px !important;
-        padding: 18px 24px !important;
+        font-size: 20px !important;
+        padding: 12px 20px !important;
         margin: 0 !important;
         height: auto !important;
         border-radius: 0 !important;
@@ -99,15 +110,13 @@ if "geladen" not in st.session_state:
         border-left: 1px solid #1a1a1a;
     }
     
-    /* Entfernt dünnen Streifen ganz oben */
+    /* === Header entfernen === */
     [data-testid="stHeader"] {
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
         height: 0px !important;
     }
-    
-    /* Weitere Absicherung */
     header, .st-emotion-cache-18ni7ap {
         background: transparent !important;
         border: none !important;
@@ -115,7 +124,6 @@ if "geladen" not in st.session_state:
     }
     </style>
 """, unsafe_allow_html=True)
-
 
 
 # --- .exe-kompatibler Pfad ---
@@ -193,16 +201,17 @@ def zeige_logo_und_titel():
 zeige_logo_und_titel()
 
 # --- Upload-Felder für vier Linien ---
+st.markdown("### Daten je Linie hochladen")
 
+col_ew1, col_ew2, col_mw1, col_mw2 = st.columns(4)
 
-col1, col2 = st.columns(2)
-
-with col1:
+with col_ew1:
     file_ew1 = st.file_uploader("Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
+with col_ew2:
     file_ew2 = st.file_uploader("Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
-
-with col2:
+with col_mw1:
     file_mw1 = st.file_uploader("Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
+with col_mw2:
     file_mw2 = st.file_uploader("Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
 
 # --- Datenverarbeitung ---
