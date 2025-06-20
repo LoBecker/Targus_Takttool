@@ -140,12 +140,14 @@ def lade_und_verarbeite_datei(uploaded_file):
                 "Takttag": "Takt",
                 "Std.": "Soll-Zeit",
                 "Ebene": "Bauraum",
-                "Tag": "Tag (MAP)" 
             }
-
             df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
 
-            erwartete_spalten = ["Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
+            # Tag (MAP) aus "Tag" erzeugen, falls nicht vorhanden
+            if "Tag (MAP)" not in df.columns and "Tag" in df.columns:
+                df["Tag (MAP)"] = df["Tag"]
+
+            erwartete_spalten = ["Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Tag (MAP)"]
             fehlende = [col for col in erwartete_spalten if col not in df.columns]
             if fehlende:
                 st.warning(f"Folgende Spalten fehlen und werden leer ergänzt: {', '.join(fehlende)}")
@@ -162,6 +164,7 @@ def lade_und_verarbeite_datei(uploaded_file):
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
+
 
 
 # --- Logo und Titel anzeigen ---
