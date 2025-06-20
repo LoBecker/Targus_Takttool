@@ -134,36 +134,34 @@ def lade_und_verarbeite_datei(uploaded_file):
 
             df.columns = [col.strip() for col in df.columns]
 
-            # Neue Spaltenzuweisung anhand deines Templates
             mapping = {
                 "Baugruppe / Arbeitsgang": "Inhalt",
                 "Takttag": "Takt",
                 "Std.": "Soll-Zeit",
                 "Ebene": "Bauraum",
+                "Tag": "Tag (MAP)"
             }
             df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
 
-            # Tag (MAP) aus "Tag" erzeugen, falls nicht vorhanden
-            if "Tag (MAP)" not in df.columns and "Tag" in df.columns:
-                df["Tag (MAP)"] = df["Tag"]
-
-            erwartete_spalten = ["Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Tag (MAP)"]
-            fehlende = [col for col in erwartete_spalten if col not in df.columns]
-            if fehlende:
-                st.warning(f"Folgende Spalten fehlen und werden leer ergänzt: {', '.join(fehlende)}")
-                for col in fehlende:
+            erwartete_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
+            for col in erwartete_spalten:
+                if col not in df.columns:
                     df[col] = ""
 
             df["Tag (MAP)"] = pd.to_numeric(df["Tag (MAP)"], errors="coerce").fillna(0).astype(int)
             df["Takt"] = pd.to_numeric(df["Takt"], errors="coerce").fillna(0).astype(int)
-            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce").fillna(0)
-            df["Stunden"] = df["Stunden"].apply(lambda x: max(x, 0.1))
+
+            # Nur deutsches Komma behandeln, alles andere zu NaN → 0.1
+            df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
+            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce").fillna(0.1)
+
             df["Tag_Takt"] = df["Tag (MAP)"].astype(str) + "_T" + df["Takt"].astype(str)
 
             st.success(f"Datei **{uploaded_file.name}** erfolgreich geladen.")
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
+
 
 
 
