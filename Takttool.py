@@ -201,7 +201,6 @@ def zeige_logo_und_titel():
 zeige_logo_und_titel()
 
 # --- Upload-Felder für vier Linien ---
-st.markdown("### Daten je Linie hochladen")
 
 col_ew1, col_ew2, col_mw1, col_mw2 = st.columns(4)
 
