@@ -140,6 +140,7 @@ def lade_und_verarbeite_datei(uploaded_file):
                 "Takttag": "Takt",
                 "Std.": "Soll-Zeit",
                 "Ebene": "Bauraum",
+                "Tag": "Tag (MAP)" 
             }
 
             df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
