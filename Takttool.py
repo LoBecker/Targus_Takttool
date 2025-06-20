@@ -257,7 +257,7 @@ with tab1:
 
     with col_rechts:
         st.markdown("#### Zeitraum wählen (nach Tag)")
-        tag_list = sorted(df["Tag"].dropna().astype(int).unique())
+        tag_list = sorted(df["Tag (MAP)"].dropna().astype(int).unique())
         idx_min, idx_max = min(tag_list), max(tag_list)
 
         tag_range = st.slider(
@@ -265,21 +265,21 @@ with tab1:
             min_value=idx_min,
             max_value=idx_max,
             value=(idx_min, idx_max),
-            key="montage_slider"
+            key="tag_slider"
         )
 
     # --- Zeitzuordnung (Start/Ende berechnen) ---
-    df["Tag"] = df["Tag"].astype(int)
+    df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
     tag_mapping = {
         tag: arbeitstag_ab(startdatum, tag - 1)
-        for tag in sorted(df["Tag"].unique())
+        for tag in sorted(df["Tag (MAP)"].unique())
     }
-    df["Start_Datum"] = df["Tag"].map(tag_mapping)
+    df["Start_Datum"] = df["Tag (MAP)"].map(tag_mapping)
     df["Start"] = pd.to_datetime(df["Start_Datum"]) + pd.to_timedelta(6, unit='h')
     df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"], unit="h")
 
     # --- Filter auf ausgewählten Bereich anwenden ---
-    df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
+    df_filtered = df[df["Tag (MAP)"].between(tag_range[0], tag_range[1])].copy()
 
     # --- Tabelle und Gantt nebeneinander ---
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -299,7 +299,7 @@ with tab1:
         excel_buffer.seek(0)
 
         st.download_button(
-            label="Geänderte Datei herunterladen",
+            label="⬇️ Geänderte Datei herunterladen",
             data=excel_buffer,
             file_name="Montageplanung_EW1_aktualisiert.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -331,22 +331,21 @@ with tab1:
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
-    # --- Statistiken & Diagramme ---
     st.divider()
 
+    # --- Statistiken ---
     if not df_filtered.empty:
-        df_filtered["Tag"] = df_filtered["Tag"].astype(int)
-
-        # Bereiche definieren
-        bereich_1 = df_filtered[df_filtered["Tag"].between(0, 7)]
-        bereich_2 = df_filtered[df_filtered["Tag"].between(8, 14)]
-        bereich_3 = df_filtered[df_filtered["Tag"].between(15, 21)]
+        df_filtered["Tag (MAP)"] = df_filtered["Tag (MAP)"].astype(int)
 
         def gruppiere(df, group_field):
-            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+            return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
+
+        bereich_1 = df_filtered[df_filtered["Tag (MAP)"].between(0, 7)]
+        bereich_2 = df_filtered[df_filtered["Tag (MAP)"].between(8, 14)]
+        bereich_3 = df_filtered[df_filtered["Tag (MAP)"].between(15, 21)]
 
         bauraum_data = [gruppiere(bereich_1, "Bauraum"), gruppiere(bereich_2, "Bauraum"), gruppiere(bereich_3, "Bauraum")]
-        quali_data = [gruppiere(bereich_1, "Qualifikation"), gruppiere(bereich_2, "Qualifikation"), gruppiere(bereich_3, "Qualifikation")]
+        quali_data   = [gruppiere(bereich_1, "Qualifikation"), gruppiere(bereich_2, "Qualifikation"), gruppiere(bereich_3, "Qualifikation")]
         titel_map = ["Takt 1", "Takt 2", "Takt 3"]
 
         col_bauraum, col_qualifikation = st.columns(2)
@@ -355,7 +354,7 @@ with tab1:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
                 fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Bauraum",
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Bauraum",
                     barmode="stack", title=titel_map[i], height=300
                 )
                 fig.update_layout(
@@ -369,7 +368,7 @@ with tab1:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
                 fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Qualifikation",
+                    df_plot, x="Tag (MAP)", y="Stunden", color="Qualifikation",
                     barmode="stack", title=titel_map[i], height=300
                 )
                 fig.update_layout(
@@ -380,7 +379,6 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
-
 
 with tab2:
     df = df_ew2
