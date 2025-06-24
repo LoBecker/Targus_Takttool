@@ -279,29 +279,27 @@ def arbeitstag_ab(start: datetime.date, tage: int):
 with tab1:
     df = df_ew1
 
-    # --- Zeitraum auswählen per Slider ---
-    col_links, col_rechts = st.columns([1, 3])
-    with col_rechts:
-        st.markdown("#### Zeitraum wählen (nach Tag)")
-        tag_list = sorted(df["Tag (MAP)"].dropna().astype(int).unique())
-        idx_min, idx_max = min(tag_list), max(tag_list)
+    # --- Zeitraum auswählen (Slider über gesamte Breite) ---
+    st.markdown("#### Zeitraum wählen (nach Tag)")
+    tag_list = sorted(df["Tag (MAP)"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_list), max(tag_list)
 
-        tag_range = st.slider(
-            "Tag auswählen",
-            min_value=idx_min,
-            max_value=idx_max,
-            value=(idx_min, idx_max),
-            key="tag_slider"
-        )
+    tag_range = st.slider(
+        "Tag auswählen",
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
+        key="tag_slider_fullwidth"
+    )
 
-    # --- Zeitzuordnung (Start/Ende) ohne Startdatum ---
+    # --- Zeitachse simulieren auf Basis von Tag & Takt (ohne Datum) ---
     df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
-    basis_datum = datetime(2025, 1, 1)
-    df["Start_min"] = (df["Tag (MAP)"] * 100 + df["Takt"]) * 10
-    df["Start"] = basis_datum + pd.to_timedelta(df["Start_min"], unit="m")
-    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"] * 60, unit="m")
+    df["Start"] = (df["Tag (MAP)"] * 10 + df["Takt"]) * 10  # Minuten-Ersatzwert
+    df["Ende"] = df["Start"] + (df["Stunden"] * 60)
+    df["Start"] = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Start"], unit="m")
+    df["Ende"] = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Ende"], unit="m")
 
-    # --- Filter auf ausgewählten Bereich anwenden ---
+    # --- Filter auf ausgewählten Tag-Bereich anwenden ---
     df_filtered = df[df["Tag (MAP)"].between(tag_range[0], tag_range[1])].copy()
 
     # --- Tabelle und Gantt nebeneinander ---
@@ -400,7 +398,6 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
-
 
 with tab2:
     df = df_ew2
