@@ -132,41 +132,48 @@ def lade_und_verarbeite_datei(uploaded_file):
             else:
                 df = pd.read_csv(uploaded_file)
 
+            # Spalten bereinigen
             df.columns = [col.strip() for col in df.columns]
 
+            # --- Neues Mapping ---
             mapping = {
                 "Baugruppe / Arbeitsgang": "Inhalt",
-                "Takttag": "Takt",
-                "Std.": "Soll-Zeit",
+                "Stunden": "Soll-Zeit",
                 "Ebene": "Bauraum",
-                "Tag": "Tag (MAP)"
+                "Datum \nStart (Berechnet)": "Tag (MAP)",
+                "Qualifikation": "Qualifikation"
             }
+
             df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
 
+            # Fehlende Spalten ergänzen
             erwartete_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
             for col in erwartete_spalten:
                 if col not in df.columns:
                     df[col] = ""
 
-            df["Tag (MAP)"] = pd.to_numeric(df["Tag (MAP)"], errors="coerce").fillna(0).astype(int)
-            df["Takt"] = pd.to_numeric(df["Takt"], errors="coerce").fillna(0).astype(int)
+            # --- MAP-Tage aus Datum ableiten ---
+            df["Tag (MAP)"] = pd.to_datetime(df["Tag (MAP)"], errors="coerce")
+            startdatum_ref = df["Tag (MAP)"].min()
+            df["Tag (MAP)"] = (df["Tag (MAP)"] - startdatum_ref).dt.days + 1
+            df["Tag (MAP)"] = df["Tag (MAP)"].fillna(0).astype(int)
 
-            # Nur deutsches Komma behandeln, alles andere zu NaN → 0.1
+            # --- Takt künstlich auf 1 setzen, falls nicht vorhanden ---
+            if "Takt" not in df.columns or df["Takt"].nunique() <= 1:
+                df["Takt"] = 1
+
+            # --- Soll-Zeit bereinigen & Stunden berechnen ---
             df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
-            df["Stunden"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
-            df["Stunden"] = pd.to_numeric(df["Stunden"], errors="coerce").fillna(0)
+            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce").fillna(0)
             df["Stunden"] = df["Stunden"].apply(lambda x: max(x, 0.1))
 
-
+            # --- Zusätzliche Spalte für eindeutige Zuordnung ---
             df["Tag_Takt"] = df["Tag (MAP)"].astype(str) + "_T" + df["Takt"].astype(str)
 
-            st.success(f"Datei **{uploaded_file.name}** erfolgreich geladen.")
+            st.success(f"Datei **{uploaded_file.name}** erfolgreich verarbeitet.")
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
-
-
-
 
 # --- Logo und Titel anzeigen ---
 def zeige_logo_und_titel():
