@@ -300,7 +300,8 @@ with tab1:
             df_filtered,
             use_container_width=True,
             num_rows="dynamic",
-            hide_index=True
+            hide_index=True,
+            key="data_editor_ew1"
         )
 
         import io
