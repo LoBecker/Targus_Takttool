@@ -279,13 +279,8 @@ def arbeitstag_ab(start: datetime.date, tage: int):
 with tab1:
     df = df_ew1
 
-    # --- Startdatum und Zeitraum nebeneinander ---
+    # --- Zeitraum auswählen per Slider ---
     col_links, col_rechts = st.columns([1, 3])
-
-    with col_links:
-        st.markdown("#### Startdatum der Planung")
-        startdatum = st.date_input("Startdatum", value=datetime.today(), key="startdatum_input")
-
     with col_rechts:
         st.markdown("#### Zeitraum wählen (nach Tag)")
         tag_list = sorted(df["Tag (MAP)"].dropna().astype(int).unique())
@@ -299,15 +294,12 @@ with tab1:
             key="tag_slider"
         )
 
-    # --- Zeitzuordnung (Start/Ende berechnen) ---
+    # --- Zeitzuordnung (Start/Ende) ohne Startdatum ---
     df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
-    tag_mapping = {
-        tag: arbeitstag_ab(startdatum, tag - 1)
-        for tag in sorted(df["Tag (MAP)"].unique())
-    }
-    df["Start_Datum"] = df["Tag (MAP)"].map(tag_mapping)
-    df["Start"] = pd.to_datetime(df["Start_Datum"]) + pd.to_timedelta(6, unit='h')
-    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"], unit="h")
+    basis_datum = datetime(2025, 1, 1)
+    df["Start_min"] = (df["Tag (MAP)"] * 100 + df["Takt"]) * 10
+    df["Start"] = basis_datum + pd.to_timedelta(df["Start_min"], unit="m")
+    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"] * 60, unit="m")
 
     # --- Filter auf ausgewählten Bereich anwenden ---
     df_filtered = df[df["Tag (MAP)"].between(tag_range[0], tag_range[1])].copy()
@@ -365,20 +357,17 @@ with tab1:
 
     st.divider()
 
-    # --- Statistiken ---
+    # --- Statistiken nach Takt ---
     if not df_filtered.empty:
         df_filtered["Tag (MAP)"] = df_filtered["Tag (MAP)"].astype(int)
 
         def gruppiere(df, group_field):
             return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
 
-        bereich_1 = df_filtered[df_filtered["Tag (MAP)"].between(0, 7)]
-        bereich_2 = df_filtered[df_filtered["Tag (MAP)"].between(8, 14)]
-        bereich_3 = df_filtered[df_filtered["Tag (MAP)"].between(15, 21)]
-
-        bauraum_data = [gruppiere(bereich_1, "Bauraum"), gruppiere(bereich_2, "Bauraum"), gruppiere(bereich_3, "Bauraum")]
-        quali_data   = [gruppiere(bereich_1, "Qualifikation"), gruppiere(bereich_2, "Qualifikation"), gruppiere(bereich_3, "Qualifikation")]
-        titel_map = ["Takt 1", "Takt 2", "Takt 3"]
+        takte = sorted(df_filtered["Takt"].dropna().unique())
+        bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
+        quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
@@ -411,6 +400,7 @@ with tab1:
                 st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
+
 
 with tab2:
     df = df_ew2
