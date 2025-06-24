@@ -912,10 +912,10 @@ with tab5:
         if df_gesamt.empty:
             st.info("Keine Aufgaben für die gewählte Planung gefunden.")
         else:
-            st.subheader("Personalbedarf gesamt")
-            gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
-            gruppe["FTE"] = gruppe["Stunden"] / fte_basis
-            st.dataframe(gruppe)
+            #st.subheader("Personalbedarf gesamt")
+            #gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
+            #gruppe["FTE"] = gruppe["Stunden"] / fte_basis
+            #st.dataframe(gruppe)
 
             st.markdown("### Stundenbedarf pro Kalendertag")
             df_plot = df_gesamt.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
