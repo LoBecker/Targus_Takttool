@@ -135,7 +135,7 @@ def lade_und_verarbeite_datei(uploaded_file):
             # Spalten bereinigen
             df.columns = [col.strip() for col in df.columns]
 
-            # --- Neues Mapping ---
+            # --- Spalten-Mapping ---
             mapping = {
                 "Baugruppe / Arbeitsgang": "Inhalt",
                 "Stunden": "Soll-Zeit",
@@ -162,18 +162,17 @@ def lade_und_verarbeite_datei(uploaded_file):
             if "Takt" not in df.columns or df["Takt"].nunique() <= 1:
                 df["Takt"] = 1
 
-            # --- Soll-Zeit bereinigen & Stunden berechnen ---
-            # --- Soll-Zeit bereinigen & Stunden berechnen ---
-            df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
+            # --- Stunden korrekt berechnen ---
+            df["Soll-Zeit"] = df["Soll-Zeit"].astype(str)
+            df["Soll-Zeit"] = df["Soll-Zeit"].str.replace(r"[^\d,\.]", "", regex=True)
+            df["Soll-Zeit"] = df["Soll-Zeit"].str.replace(",", ".", regex=False)
             df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce")
-            
-            # Warnung bei nicht lesbaren Zeitwerten
+
             anzahl_na = df["Stunden"].isna().sum()
             if anzahl_na > 0:
-                st.warning(f"{anzahl_na} Zeiteinträge konnten nicht gelesen werden und werden ignoriert.")
-            
-            # Ungültige Zeilen entfernen
-            df = df[df["Stunden"].notna()]
+                st.warning(f"⚠️ {anzahl_na} Zeiteinträge konnten nicht gelesen werden und werden ignoriert.")
+
+            df = df[df["Stunden"].notna()]  # Nur gültige Zeiteinträge behalten
 
             # --- Zusätzliche Spalte für eindeutige Zuordnung ---
             df["Tag_Takt"] = df["Tag (MAP)"].astype(str) + "_T" + df["Takt"].astype(str)
@@ -182,6 +181,7 @@ def lade_und_verarbeite_datei(uploaded_file):
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
+
 
 # --- Logo und Titel anzeigen ---
 def zeige_logo_und_titel():
