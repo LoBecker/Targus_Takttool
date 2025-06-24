@@ -182,15 +182,21 @@ def zeige_logo_und_titel():
         logo_bytes = logo_path.read_bytes()
         logo_base64 = base64.b64encode(logo_bytes).decode()
         logo_html = f'''
-            <div style="display: flex; align-items: center; justify-content: center; gap: 2rem;">
-                <img src="data:image/png;base64,{logo_base64}" style="max-height: 60px; height: auto; width: auto;">
-                <h1 style="color: #CC0000; font-size: 2rem; margin: 0;">Takttool | Montage- & Personalplanung</h1>
+            <div style="text-align: center; margin-top: 1rem; margin-bottom: 1rem;">
+                <img src="data:image/png;base64,{logo_base64}" style="max-height: 60px; height: auto;">
+                <h1 style="color: #CC0000; font-size: 2rem; margin-top: 0.5rem;">Takttool | Montage- & Personalplanung</h1>
             </div>
         '''
     else:
-        logo_html = '<div style="width:60px; height:60px; background:#ccc;"></div>'
+        logo_html = '''
+            <div style="text-align: center; margin: 1rem;">
+                <div style="width:60px; height:60px; background:#ccc; margin: auto;"></div>
+                <h1 style="color: #CC0000;">Takttool | Montage- & Personalplanung</h1>
+            </div>
+        '''
 
     st.markdown(logo_html, unsafe_allow_html=True)
+
 
 zeige_logo_und_titel()
 
