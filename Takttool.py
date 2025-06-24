@@ -292,12 +292,8 @@ with tab1:
         key="tag_slider_fullwidth"
     )
 
-    # --- Gantt-Daten vorbereiten ---
-    df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
-    df["Start"] = df["Tag (MAP)"]
-    df["Ende"] = df["Start"] + df["Stunden"] / 8  # 8 Std. = 1 Tag
-
     # --- Filter auf gewählten Bereich anwenden ---
+    df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
     df_filtered = df[df["Tag (MAP)"].between(tag_range[0], tag_range[1])].copy()
 
     # --- Tabelle und Gantt nebeneinander ---
@@ -332,6 +328,10 @@ with tab1:
 
     with col_gantt:
         if not df_filtered.empty:
+            # Gantt-Zeitachse mit echtem Datum
+            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum \nStart (Berechnet)"])
+            df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"], unit="h")
+
             fig_gantt = px.timeline(
                 df_filtered,
                 x_start="Start",
@@ -351,7 +351,7 @@ with tab1:
                 )
             )
             fig_gantt.update_layout(
-                xaxis_title="Tag (MAP)",
+                xaxis_title="Datum",
                 yaxis_title=None,
                 plot_bgcolor="#1a1a1a",
                 paper_bgcolor="#1a1a1a",
@@ -364,10 +364,8 @@ with tab1:
 
     st.divider()
 
-    # --- Statistiken nach Takt ---
+    # --- Statistiken nach Takt (nur "Tag (MAP)" als Achse) ---
     if not df_filtered.empty:
-        df_filtered["Tag (MAP)"] = df_filtered["Tag (MAP)"].astype(int)
-
         def gruppiere(df, group_field):
             return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
 
