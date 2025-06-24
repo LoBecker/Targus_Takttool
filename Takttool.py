@@ -962,6 +962,11 @@ with tab5:
             df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
             st.dataframe(df_rund)
 
+            st.subheader("Personalbedarf gesamt")
+            gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
+            gruppe["FTE"] = gruppe["Stunden"] / fte_basis
+            st.dataframe(gruppe)
+
 # --- Footer / Info für .exe-Nutzung ---
 st.markdown("""---""")
 st.markdown(
