@@ -406,17 +406,18 @@ with tab2:
     df = df_ew2
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
-    if not tag_liste:
-        st.warning("Keine gültigen Tag-Werte vorhanden.")
+    if "Tag" not in df.columns or df["Tag"].isnull().all():
+        st.warning("Keine gültigen Tag-Werte für EW2 verfügbar.")
         st.stop()
-    tag_min, tag_max = min(tag_liste), max(tag_liste)
+
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=tag_min,
-        max_value=tag_max,
-        value=(tag_min, tag_max),
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
         key="tag_slider_ew2"
     )
 
@@ -454,14 +455,19 @@ with tab2:
 
     with col_gantt:
         if not df_filtered.empty:
+            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum"], errors="coerce") + pd.to_timedelta(6, unit='h')
+            df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(
+                df_filtered["Stunden"].where(df_filtered["Stunden"] < 8, 8), unit="h"
+            )
+
             fig_gantt = px.timeline(
                 df_filtered,
                 x_start="Start",
                 x_end="Ende",
                 y="Inhalt",
                 color="Qualifikation",
-                title="Ablaufplanung (Gantt)",
-                custom_data=["Tag", "Bauraum", "Stunden"]
+                title="Ablaufplanung EW2",
+                custom_data=["Tag", "Bauraum", "Stunden"],
             )
             fig_gantt.update_yaxes(autorange="reversed")
             fig_gantt.update_traces(
@@ -470,7 +476,8 @@ with tab2:
                     "Bauraum: %{customdata[1]}<br>" +
                     "Stunden: %{customdata[2]}<br>" +
                     "Inhalt: %{y}<extra></extra>"
-                )
+                ),
+                selector=dict(type="bar")
             )
             fig_gantt.update_layout(
                 xaxis_title="Datum",
@@ -480,22 +487,22 @@ with tab2:
                 font_color="#ffffff",
                 height=600
             )
-            st.plotly_chart(fig_gantt, use_container_width=True)
+            st.plotly_chart(fig_gantt, use_container_width=True, key="gantt_ew2")
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, feld):
-            return df.groupby(["Tag", feld])["Stunden"].sum().reset_index()
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
         takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
-        quali_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map = [f"Takt {t}" for t in takte]
+        quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
-        col_bauraum, col_quali = st.columns(2)
+        col_bauraum, col_qualifikation = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
@@ -509,9 +516,9 @@ with tab2:
                     paper_bgcolor="#1a1a1a",
                     font_color="#ffffff"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_ew2_{i}")
 
-        with col_quali:
+        with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
                 fig = px.bar(
@@ -523,7 +530,7 @@ with tab2:
                     paper_bgcolor="#1a1a1a",
                     font_color="#ffffff"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_ew2_{i}")
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 # --- Tab 3: Montageplanung MW1 ---
@@ -531,17 +538,18 @@ with tab3:
     df = df_mw1
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
-    if not tag_liste:
-        st.warning("Keine gültigen Tag-Werte vorhanden.")
+    if "Tag" not in df.columns or df["Tag"].isnull().all():
+        st.warning("Keine gültigen Tag-Werte für MW1 verfügbar.")
         st.stop()
-    tag_min, tag_max = min(tag_liste), max(tag_liste)
+
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=tag_min,
-        max_value=tag_max,
-        value=(tag_min, tag_max),
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
         key="tag_slider_mw1"
     )
 
@@ -579,14 +587,19 @@ with tab3:
 
     with col_gantt:
         if not df_filtered.empty:
+            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum"], errors="coerce") + pd.to_timedelta(6, unit='h')
+            df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(
+                df_filtered["Stunden"].where(df_filtered["Stunden"] < 8, 8), unit="h"
+            )
+
             fig_gantt = px.timeline(
                 df_filtered,
                 x_start="Start",
                 x_end="Ende",
                 y="Inhalt",
                 color="Qualifikation",
-                title="Ablaufplanung (Gantt)",
-                custom_data=["Tag", "Bauraum", "Stunden"]
+                title="Ablaufplanung MW1",
+                custom_data=["Tag", "Bauraum", "Stunden"],
             )
             fig_gantt.update_yaxes(autorange="reversed")
             fig_gantt.update_traces(
@@ -595,7 +608,8 @@ with tab3:
                     "Bauraum: %{customdata[1]}<br>" +
                     "Stunden: %{customdata[2]}<br>" +
                     "Inhalt: %{y}<extra></extra>"
-                )
+                ),
+                selector=dict(type="bar")
             )
             fig_gantt.update_layout(
                 xaxis_title="Datum",
@@ -605,22 +619,22 @@ with tab3:
                 font_color="#ffffff",
                 height=600
             )
-            st.plotly_chart(fig_gantt, use_container_width=True)
+            st.plotly_chart(fig_gantt, use_container_width=True, key="gantt_mw1")
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, feld):
-            return df.groupby(["Tag", feld])["Stunden"].sum().reset_index()
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
         takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
-        quali_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map = [f"Takt {t}" for t in takte]
+        quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
-        col_bauraum, col_quali = st.columns(2)
+        col_bauraum, col_qualifikation = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
@@ -634,9 +648,9 @@ with tab3:
                     paper_bgcolor="#1a1a1a",
                     font_color="#ffffff"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_mw1_{i}")
 
-        with col_quali:
+        with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
                 fig = px.bar(
@@ -648,26 +662,29 @@ with tab3:
                     paper_bgcolor="#1a1a1a",
                     font_color="#ffffff"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_mw1_{i}")
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
+
+# --- Tab 4: Montageplanung MW2 ---
 # --- Tab 4: Montageplanung MW2 ---
 with tab4:
     df = df_mw2
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
-    if not tag_liste:
-        st.warning("Keine gültigen Tag-Werte vorhanden.")
+    if "Tag" not in df.columns or df["Tag"].isnull().all():
+        st.warning("Keine gültigen Tag-Werte für MW2 verfügbar.")
         st.stop()
-    tag_min, tag_max = min(tag_liste), max(tag_liste)
+
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=tag_min,
-        max_value=tag_max,
-        value=(tag_min, tag_max),
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
         key="tag_slider_mw2"
     )
 
@@ -705,14 +722,19 @@ with tab4:
 
     with col_gantt:
         if not df_filtered.empty:
+            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum"], errors="coerce") + pd.to_timedelta(6, unit='h')
+            df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(
+                df_filtered["Stunden"].where(df_filtered["Stunden"] < 8, 8), unit="h"
+            )
+
             fig_gantt = px.timeline(
                 df_filtered,
                 x_start="Start",
                 x_end="Ende",
                 y="Inhalt",
                 color="Qualifikation",
-                title="Ablaufplanung (Gantt)",
-                custom_data=["Tag", "Bauraum", "Stunden"]
+                title="Ablaufplanung MW2",
+                custom_data=["Tag", "Bauraum", "Stunden"],
             )
             fig_gantt.update_yaxes(autorange="reversed")
             fig_gantt.update_traces(
@@ -721,7 +743,8 @@ with tab4:
                     "Bauraum: %{customdata[1]}<br>" +
                     "Stunden: %{customdata[2]}<br>" +
                     "Inhalt: %{y}<extra></extra>"
-                )
+                ),
+                selector=dict(type="bar")
             )
             fig_gantt.update_layout(
                 xaxis_title="Datum",
@@ -731,22 +754,22 @@ with tab4:
                 font_color="#ffffff",
                 height=600
             )
-            st.plotly_chart(fig_gantt, use_container_width=True)
+            st.plotly_chart(fig_gantt, use_container_width=True, key="gantt_mw2")
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, feld):
-            return df.groupby(["Tag", feld])["Stunden"].sum().reset_index()
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
         takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
-        quali_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map = [f"Takt {t}" for t in takte]
+        quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
-        col_bauraum, col_quali = st.columns(2)
+        col_bauraum, col_qualifikation = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
@@ -760,9 +783,9 @@ with tab4:
                     paper_bgcolor="#1a1a1a",
                     font_color="#ffffff"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_mw2_{i}")
 
-        with col_quali:
+        with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
                 fig = px.bar(
@@ -774,7 +797,7 @@ with tab4:
                     paper_bgcolor="#1a1a1a",
                     font_color="#ffffff"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_mw2_{i}")
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
