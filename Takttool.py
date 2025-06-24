@@ -328,8 +328,9 @@ with tab1:
 
     with col_gantt:
         if not df_filtered.empty:
-            # Gantt-Zeitachse mit echtem Datum
-            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum \nStart (Berechnet)"])
+            # ✅ Gantt-Fix: Nur gültige Datumswerte verwenden
+            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum \nStart (Berechnet)"], errors="coerce")
+            df_filtered = df_filtered[df_filtered["Start"].notna()]
             df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"], unit="h")
 
             fig_gantt = px.timeline(
@@ -364,7 +365,7 @@ with tab1:
 
     st.divider()
 
-    # --- Statistiken nach Takt (nur "Tag (MAP)" als Achse) ---
+    # --- Statistiken nach Takt (rein "Tag (MAP)") ---
     if not df_filtered.empty:
         def gruppiere(df, group_field):
             return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
