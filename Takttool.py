@@ -132,46 +132,55 @@ def lade_und_verarbeite_datei(uploaded_file):
             else:
                 df = pd.read_csv(uploaded_file)
 
+            # Spalten bereinigen
             df.columns = [col.strip() for col in df.columns]
 
+            # --- Spalten-Mapping ---
             mapping = {
                 "Baugruppe / Arbeitsgang": "Inhalt",
                 "Std.": "Soll-Zeit",
                 "Ebene": "Bauraum",
-                "Datum \nStart (Berechnet)": "Datum_Start",
-                "Qualifikation": "Qualifikation"
+                "Datum \nStart (Berechnet)": "Datum",
+                "Qualifikation": "Qualifikation",
+                "Tag": "Tag"
             }
+
             df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
 
-            erwartete_spalten = ["Datum_Start", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
+            # Fehlende Spalten ergänzen
+            erwartete_spalten = ["Datum", "Tag", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
             for col in erwartete_spalten:
                 if col not in df.columns:
                     df[col] = ""
 
-            df["Datum_Start"] = pd.to_datetime(df["Datum_Start"], errors="coerce")
-            startdatum_ref = df["Datum_Start"].min()
-            df["Tag (MAP)"] = (df["Datum_Start"] - startdatum_ref).dt.days + 1
-            df["Tag (MAP)"] = df["Tag (MAP)"].fillna(0).astype(int)
+            # --- Zeitspalte in Stunden ---
+            df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(r"[^\d,\.]", "", regex=True).str.replace(",", ".", regex=False)
+            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce")
+            df = df[df["Stunden"].notna()]
 
+            # --- Takt falls leer auf 1 setzen ---
             if "Takt" not in df.columns or df["Takt"].nunique() <= 1:
                 df["Takt"] = 1
 
-            df["Soll-Zeit"] = df["Soll-Zeit"].astype(str)
-            df["Soll-Zeit"] = df["Soll-Zeit"].str.replace(r"[^\d,\.]", "", regex=True)
-            df["Soll-Zeit"] = df["Soll-Zeit"].str.replace(",", ".", regex=False)
-            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce")
+            # --- Datum in datetime und Uhrzeiten setzen ---
+            df["Datum"] = pd.to_datetime(df["Datum"], errors="coerce")
+            df = df[df["Datum"].notna()]
+            df["Start"] = df["Datum"] + pd.to_timedelta(6, unit="h")
+            df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"], unit="h")
 
-            anzahl_na = df["Stunden"].isna().sum()
-            if anzahl_na > 0:
-                st.warning(f"⚠️ {anzahl_na} Zeiteinträge konnten nicht gelesen werden und werden ignoriert.")
+            # --- Sicherer Fallback falls "Tag" leer ---
+            if df["Tag"].isnull().all() or df["Tag"].eq("").all():
+                startdatum_ref = df["Datum"].min()
+                df["Tag"] = (df["Datum"] - startdatum_ref).dt.days + 1
 
-            df = df[df["Stunden"].notna()]
-            df["Tag_Takt"] = df["Tag (MAP)"].astype(str) + "_T" + df["Takt"].astype(str)
+            # --- Kombispalte für spätere Filterung ---
+            df["Tag_Takt"] = df["Tag"].astype(str) + "_T" + df["Takt"].astype(str)
 
             st.success(f"Datei **{uploaded_file.name}** erfolgreich verarbeitet.")
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
+
 
 
 # --- Logo und Titel anzeigen ---
@@ -262,54 +271,41 @@ def arbeitstag_ab(start: datetime.date, tage: int):
 
 # --- Tab 1: Montageplanung EW1 ---
 with tab1:
-    df = df_ew1.copy()
+    df = df_ew1
 
-    # Nur gültige Zeilen mit Stunden
-    df = df[df["Stunden"].notna() & (df["Stunden"] > 0)].copy()
-
-    # --- Zeitraum auswählen ---
-    st.markdown("#### Zeitraum wählen (nach MAP-Tag)")
-    tag_list = sorted(df["Tag (MAP)"].dropna().astype(int).unique())
-    if not tag_list:
-        st.warning("Keine gültigen MAP-Tage vorhanden.")
+    # --- Zeitraum wählen (Slider über die gesamte Breite) ---
+    st.markdown("#### Zeitraum wählen (nach Tag)")
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    if not tag_liste:
+        st.warning("Keine gültigen Tag-Werte vorhanden.")
         st.stop()
-
-    idx_min, idx_max = min(tag_list), max(tag_list)
+    tag_min, tag_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=idx_min,
-        max_value=idx_max,
-        value=(idx_min, idx_max),
-        key="slider_tag_ew1"
+        min_value=tag_min,
+        max_value=tag_max,
+        value=(tag_min, tag_max),
+        key="tag_slider_ew1"
     )
 
-    # Filter anwenden
-    df = df[df["Tag (MAP)"].between(tag_range[0], tag_range[1])].copy()
+    # --- Filter anwenden ---
+    df["Tag"] = df["Tag"].astype(int)
+    df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
-    # --- Startdatum berechnen ---
-    basisdatum = datetime(2025, 1, 6)  # z. B. Montag, fester Startpunkt
-    tag_to_datum = {tag: arbeitstag_ab(basisdatum.date(), tag - 1) for tag in sorted(df["Tag (MAP)"].unique())}
-    df["Datum_Start"] = df["Tag (MAP)"].map(tag_to_datum)
-
-    # --- Start-/End-Zeiten für Gantt ---
-    df["Start"] = pd.to_datetime(df["Datum_Start"]) + pd.to_timedelta(6, unit="h")
-    df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"].clip(upper=8), unit="h")
-
-    # --- Tabelle & Gantt nebeneinander ---
+    # --- Tabelle und Gantt nebeneinander ---
     col_table, col_gantt = st.columns([1.2, 1.8])
 
     with col_table:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         edited_df = st.data_editor(
-            df,
+            df_filtered,
             use_container_width=True,
             num_rows="dynamic",
             hide_index=True,
-            key="editor_ew1"
+            key="data_editor_ew1"
         )
 
-        # Download Button
         import io
         excel_buffer = io.BytesIO()
         edited_df.to_excel(excel_buffer, index=False, engine="openpyxl")
@@ -322,27 +318,32 @@ with tab1:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        if not edited_df.equals(df):
-            df_ew1.update(edited_df)
-            st.session_state["df_ew1"] = df_ew1.copy()
+        if not edited_df.equals(df_filtered):
+            df.update(edited_df)
+            st.session_state["df_ew1"] = df.copy()
             st.success("Änderungen gespeichert.")
 
     with col_gantt:
-        if not df.empty:
-            fig = px.timeline(
-                df,
+        if not df_filtered.empty:
+            fig_gantt = px.timeline(
+                df_filtered,
                 x_start="Start",
                 x_end="Ende",
                 y="Inhalt",
                 color="Qualifikation",
-                title="Ablaufplanung (EW1)",
-                custom_data=["Tag (MAP)", "Bauraum", "Stunden"]
+                title="Ablaufplanung (Gantt)",
+                custom_data=["Tag", "Bauraum", "Stunden"]
             )
-            fig.update_yaxes(autorange="reversed")
-            fig.update_traces(
-                hovertemplate="Tag: %{customdata[0]}<br>Bauraum: %{customdata[1]}<br>Stunden: %{customdata[2]}<br>Inhalt: %{y}<extra></extra>"
+            fig_gantt.update_yaxes(autorange="reversed")
+            fig_gantt.update_traces(
+                hovertemplate=(
+                    "Tag: %{customdata[0]}<br>" +
+                    "Bauraum: %{customdata[1]}<br>" +
+                    "Stunden: %{customdata[2]}<br>" +
+                    "Inhalt: %{y}<extra></extra>"
+                )
             )
-            fig.update_layout(
+            fig_gantt.update_layout(
                 xaxis_title="Datum",
                 yaxis_title=None,
                 plot_bgcolor="#1a1a1a",
@@ -350,29 +351,30 @@ with tab1:
                 font_color="#ffffff",
                 height=600
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_gantt, use_container_width=True)
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
     st.divider()
 
-    # --- Statistiken nach Takt ---
-    if not df.empty:
-        def gruppiere(df, group_field):
-            return df.groupby(["Tag (MAP)", group_field])["Stunden"].sum().reset_index()
+    # --- Balkendiagramme nach Takt mit x = Tag ---
+    if not df_filtered.empty:
+        def gruppiere(df, field):
+            return df.groupby(["Tag", field])["Stunden"].sum().reset_index()
 
-        takte = sorted(df["Takt"].dropna().unique())
-        bauraum_data = [gruppiere(df[df["Takt"] == t], "Bauraum") for t in takte]
-        quali_data   = [gruppiere(df[df["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {t}" for t in takte]
+        takte = sorted(df_filtered["Takt"].dropna().unique())
+        bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
+        quali_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
+        titel_map = [f"Takt {t}" for t in takte]
 
-        col_bauraum, col_qualifikation = st.columns(2)
+        col_bauraum, col_quali = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
                 fig = px.bar(
-                    df_plot, x="Tag (MAP)", y="Stunden", color="Bauraum",
+                    df_plot,
+                    x="Tag", y="Stunden", color="Bauraum",
                     barmode="stack", title=titel_map[i], height=300
                 )
                 fig.update_layout(
@@ -382,11 +384,12 @@ with tab1:
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
-        with col_qualifikation:
+        with col_quali:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
                 fig = px.bar(
-                    df_plot, x="Tag (MAP)", y="Stunden", color="Qualifikation",
+                    df_plot,
+                    x="Tag", y="Stunden", color="Qualifikation",
                     barmode="stack", title=titel_map[i], height=300
                 )
                 fig.update_layout(
@@ -396,7 +399,7 @@ with tab1:
                 )
                 st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("Keine Daten für Statistiken.")
+        st.info("Keine Daten für Statistiken vorhanden.")
 
 with tab2:
     df = df_ew2
