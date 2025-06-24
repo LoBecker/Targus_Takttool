@@ -138,7 +138,7 @@ def lade_und_verarbeite_datei(uploaded_file):
             # --- Spalten-Mapping ---
             mapping = {
                 "Baugruppe / Arbeitsgang": "Inhalt",
-                "Stunden": "Soll-Zeit",
+                "Std.": "Soll-Zeit",
                 "Ebene": "Bauraum",
                 "Datum \nStart (Berechnet)": "Tag (MAP)",
                 "Qualifikation": "Qualifikation"
