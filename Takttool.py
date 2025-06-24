@@ -668,7 +668,6 @@ with tab3:
 
 
 # --- Tab 4: Montageplanung MW2 ---
-# --- Tab 4: Montageplanung MW2 ---
 with tab4:
     df = df_mw2
 
@@ -758,6 +757,8 @@ with tab4:
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
+# --- Tab 5: Personalplanung ---
+with tab5:
     st.divider()
 
     if not df_filtered.empty:
