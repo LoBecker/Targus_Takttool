@@ -757,8 +757,7 @@ with tab4:
         else:
             st.info("Keine Daten für Gantt-Diagramm.")
 
-# --- Tab 5: Personalplanung ---
-with tab5:
+
     st.divider()
 
     if not df_filtered.empty:
@@ -802,6 +801,8 @@ with tab5:
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
+# --- Tab 5: Personalplanung ---
+with tab5:
     # --- Auswahl: 5 oder 7 Tage Planung ---
     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True)
 
