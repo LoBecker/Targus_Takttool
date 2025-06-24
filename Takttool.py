@@ -187,8 +187,8 @@ def zeige_logo_und_titel():
                     <img src="data:image/png;base64,{logo_base64}" style="max-height: 50px; height: auto; width: auto;">
                 </div>
                 <div style="flex: 2; text-align: center; min-width: 250px;">
-                    <h1 style="margin: 0; font-size: 2rem;">
-                        <span style="color: white;">Targus</span> <span style="color: #CC0000;">| Takttool – Montage- & Personalplanung</span>
+                    <h1 style="margin: 0; font-size: 2rem; color: white;">
+                        Takttool: Montage- & Personalplanung
                     </h1>
                 </div>
                 <div style="flex: 1;"></div> <!-- rechter Abstandhalter -->
@@ -198,7 +198,7 @@ def zeige_logo_und_titel():
         logo_html = '''
             <div style="text-align: center; margin: 1rem;">
                 <div style="width:60px; height:60px; background:#ccc; margin: auto;"></div>
-                <h1 style="color: #CC0000;">Takttool | Montage- & Personalplanung</h1>
+                <h1 style="color: white;">Takttool: Montage- & Personalplanung</h1>
             </div>
         '''
     st.markdown(logo_html, unsafe_allow_html=True)
