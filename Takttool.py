@@ -801,187 +801,164 @@ with tab4:
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
+    # --- Auswahl: 5 oder 7 Tage Planung ---
+    planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True)
 
-with tab5:
+    # --- Eingabefeld für FTE-Stunden ---
+    if "fte_stunden" not in st.session_state:
+        st.session_state["fte_stunden"] = 8
 
-    if not df.empty:
-        # --- Auswahl: 5 oder 7 Tage Planung ---
-        planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True)
+    fte_basis = st.number_input(
+        "Wieviele Stunden arbeitet ein FTE pro Tag?",
+        min_value=1,
+        max_value=24,
+        step=1,
+        key="fte_stunden"
+    )
 
-        # --- Eingabefeld für FTE-Stunden vor die Matrix ziehen ---
-        if "fte_stunden" not in st.session_state:
-            st.session_state["fte_stunden"] = 8
+    # --- DropDown-Zuweisung der Pläne pro Wagenkasten ---
+    plan_mapping = {
+        "EW1": df_ew1,
+        "EW2": df_ew2,
+        "MW1": df_mw1,
+        "MW2": df_mw2
+    }
 
-        fte_basis = st.number_input(
-            "Wieviele Stunden arbeitet ein FTE pro Tag?",
-            min_value=1,
-            max_value=24,
-            step=1,
-            key="fte_stunden"
+    st.markdown("### 🔄 Auswahl des Montageplans pro Wagenkasten")
+
+    wagenkästen = [f"Wagenkasten {i}" for i in range(1, 13)]
+    zugewiesene_pläne = {}
+
+    plan_row = st.columns(len(wagenkästen))
+    for i, wk in enumerate(wagenkästen):
+        zugewiesene_pläne[wk] = plan_row[i].selectbox(
+            f"{wk}",
+            options=["EW1", "EW2", "MW1", "MW2"],
+            key=f"plan_select_{wk}"
         )
 
-        # --- Alle MAP-Tage aus Datei extrahieren ---
-        tag_map_liste = sorted(df["Tag (MAP)"].dropna().unique().astype(int).tolist())
+    st.markdown("### ✅ Belegung der MAP-Tage über Checkbox-Matrix")
 
-        # --- Feste Wagenkasten-Labels ---
-        wagenkästen = [f"Wagenkasten {i}" for i in range(1, 13)]
+    # Alle MAP-Tage aus allen Plänen sammeln
+    alle_tags = set()
+    for df in plan_mapping.values():
+        if "Tag" in df.columns:
+            alle_tags.update(df["Tag"].dropna().astype(int).tolist())
 
-        zuordnung = {tag_map: [] for tag_map in tag_map_liste}
+    tag_map_liste = sorted(alle_tags)[:23]  # Statt 21 nun 23 Tage
 
-        # --- Hilfsfunktion: angrenzende Checkboxen berechnen ---
-        def berechne_automatische_auswahl(tag_idx, planungstage, tag_map_liste):
-            offset = planungstage // 2
-            start = max(0, tag_idx - offset)
-            end = min(len(tag_map_liste), tag_idx + offset + 1)
-            return tag_map_liste[start:end]
+    zuordnung = {tag_map: [] for tag_map in tag_map_liste}
 
+    header_cols = st.columns([1] + [1] * len(wagenkästen))
+    header_cols[0].markdown("**MAP-Tag**")
+    for i, wk in enumerate(wagenkästen):
+        header_cols[i + 1].markdown(f"**{wk}**")
 
+    for tag_idx, tag_map in enumerate(tag_map_liste):
+        cols = st.columns([1] + [1] * len(wagenkästen))
+        cols[0].markdown(f"{tag_map}")
 
+        for wk_idx, wk in enumerate(wagenkästen):
+            key = f"wk{wk_idx}_tag{tag_map}"
+            current_value = st.session_state.get(key, False)
 
-        st.markdown("### Zuordnung der Wagenkästen zu MAP-Tagen")
+            checkbox_clicked = cols[wk_idx + 1].checkbox("", value=current_value, key=key)
 
-        header_cols = st.columns([1] + [1]*len(wagenkästen))
-        header_cols[0].markdown("**MAP-Tag**")
-for tag_idx, tag_map in enumerate(tag_map_liste):
-    cols = st.columns([1] + [1]*len(wagenkästen))
-    cols[0].markdown(f"Tag {tag_map}")
+            if checkbox_clicked and not current_value:
+                offset = planungstage // 2
+                start = max(0, tag_idx - offset)
+                end = min(len(tag_map_liste), tag_idx + offset + 1)
+                for i in range(start, end):
+                    st.session_state[f"wk{wk_idx}_tag{tag_map_liste[i]}"] = True
+                st.rerun()
 
-    for wk_idx, wk in enumerate(wagenkästen):
-        key = f"{wk}_{tag_map}"
-        current_value = st.session_state.get(key, False)
+            if st.session_state.get(key, False):
+                zuordnung[tag_map].append((wk_idx, wk))
+    # --- Auswertung starten ---
+    submitted = st.button("Berechne Personalbedarf")
 
-        checkbox_clicked = cols[wk_idx + 1].checkbox("", value=current_value, key=key)
+    if submitted:
+        fehler_wagen = []
+        belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
 
-        if checkbox_clicked and not current_value:
-            # Automatisch benachbarte MAP-Tage (gleiche Spalte/Wagenkasten)
-            offset = planungstage // 2
-            start = max(0, tag_idx - offset)
-            end = min(len(tag_map_liste), tag_idx + offset + 1)
-            for i in range(start, end):
-                st.session_state[f"{wk}_{tag_map_liste[i]}"] = True
-            st.rerun()
+        for tag_map, einträge in zuordnung.items():
+            for _, wk in einträge:
+                belegung_pro_wagen[wk] += 1
 
-        if st.session_state.get(key, False):
-            zuordnung[tag_map].append(wk)
+        for wk, count in belegung_pro_wagen.items():
+            if count != 0 and count != planungstage:
+                fehler_wagen.append((wk, count))
 
+        if fehler_wagen:
+            fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
+            st.error(f"❌ Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
+            st.stop()
 
-        # Separate Submit-Schaltfläche unterhalb
-        submitted = st.button("Berechne Personalbedarf")
+        # --- Daten aggregieren pro zugewiesenem Plan ---
+        df_gesamt = pd.DataFrame()
+        for tag_map, einträge in zuordnung.items():
+            for wk_idx, wk in einträge:
+                plan_name = zugewiesene_pläne[wk]
+                df_source = plan_mapping[plan_name]
+                df_part = df_source[df_source["Tag"] == tag_map].copy()
 
-
-        if submitted:
-            fehler_wagen = []
-            belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
-
-            for tag_map, wagenliste in zuordnung.items():
-                for wk in wagenliste:
-                    belegung_pro_wagen[wk] += 1
-
-            for wk, count in belegung_pro_wagen.items():
-                if count != 0 and count != planungstage:
-                    fehler_wagen.append((wk, count))
-
-            if fehler_wagen:
-                fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
-                st.error(f"Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
-                st.stop()
-
-            map_counter = {tag_map: len(wagenliste) for tag_map, wagenliste in zuordnung.items() if wagenliste}
-
-            df_gesamt = pd.DataFrame()
-            for tag_map, faktor in map_counter.items():
-                df_part = df[df["Tag (MAP)"] == tag_map].copy()
                 if not df_part.empty:
-                    df_part["Stunden"] *= faktor
+                    df_part["Stunden"] *= 1
+                    df_part["Kalendertag"] = tag_map
                     df_gesamt = pd.concat([df_gesamt, df_part], ignore_index=True)
 
-            if df_gesamt.empty:
-                st.info("Keine Aufgaben für die gewählte Planung gefunden.")
-            else:
-                st.subheader("Personalbedarf gesamt")
-                gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
-                gruppe["FTE"] = gruppe["Stunden"] / st.session_state["fte_stunden"]
-                st.dataframe(gruppe)
+        if df_gesamt.empty:
+            st.info("ℹ️ Keine Aufgaben für die gewählte Planung gefunden.")
+        else:
+            st.subheader("📊 Personalbedarf gesamt")
+            gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
+            gruppe["FTE"] = gruppe["Stunden"] / fte_basis
+            st.dataframe(gruppe)
 
-                st.markdown("### Taktbasierter Stundenbedarf pro Kalendertag")
+            st.markdown("### 📉 Stundenbedarf pro Kalendertag")
+            df_plot = df_gesamt.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
 
-                wagenkasten_to_map = {wk: [] for wk in wagenkästen}
-                for tag_map, wks in zuordnung.items():
-                    for wk in wks:
-                        wagenkasten_to_map[wk].append(tag_map)
+            fig = px.bar(
+                df_plot,
+                x="Kalendertag",
+                y="Stunden",
+                color="Qualifikation",
+                barmode="stack",
+                title="Stundenbedarf pro Tag"
+            )
+            fig.update_layout(
+                plot_bgcolor="#1a1a1a",
+                paper_bgcolor="#1a1a1a",
+                font_color="#ffffff"
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-                einträge = []
-                for wk, map_tage in wagenkasten_to_map.items():
-                    if not map_tage:
-                        continue
-                    map_tage_sorted = sorted(map_tage)
-                    tag_pos_map = {map_tag: i for i, map_tag in enumerate(map_tage_sorted)}
-                    df_subset = df[df["Tag (MAP)"].isin(map_tage_sorted)].copy()
-                    if df_subset.empty:
-                        continue
-                    for _, row in df_subset.iterrows():
-                        map_tag = int(row["Tag (MAP)"])
-                        if map_tag not in tag_pos_map:
-                            continue
-                        kalender_tag = tag_pos_map[map_tag] + 1
-                        einträge.append({
-                            "Kalendertag": kalender_tag,
-                            "Qualifikation": row["Qualifikation"],
-                            "Stunden": row["Stunden"]
-                        })
+            st.markdown("### 👥 FTE-Bedarf pro Kalendertag")
+            df_fte = df_plot.copy()
+            df_fte["FTE"] = df_fte["Stunden"] / fte_basis
 
-                if einträge:
-                    df_plot = pd.DataFrame(einträge)
-                    df_plot = df_plot.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
+            fig_fte = px.bar(
+                df_fte,
+                x="Kalendertag",
+                y="FTE",
+                color="Qualifikation",
+                barmode="stack",
+                title="FTE pro Tag",
+                labels={"FTE": "FTE"}
+            )
+            fig_fte.update_layout(
+                plot_bgcolor="#1a1a1a",
+                paper_bgcolor="#1a1a1a",
+                font_color="#ffffff"
+            )
+            st.plotly_chart(fig_fte, use_container_width=True)
 
-                    fig = px.bar(
-                        df_plot,
-                        x="Kalendertag",
-                        y="Stunden",
-                        color="Qualifikation",
-                        title="Stundenbedarf pro Kalendertag (gestapelt)",
-                        barmode="stack"
-                    )
-                    fig.update_layout(
-                        plot_bgcolor="#1a1a1a",
-                        paper_bgcolor="#1a1a1a",
-                        font_color="#ffffff"
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    # FTE-Plot direkt im Anschluss
-                    df_fte = df_plot.copy()
-                    df_fte["FTE"] = df_fte["Stunden"] / st.session_state["fte_stunden"]
-
-                    st.markdown("### FTE-Bedarf pro Kalendertag")
-                    fig_fte = px.bar(
-                        df_fte,
-                        x="Kalendertag",
-                        y="FTE",
-                        color="Qualifikation",
-                        title="FTE-Bedarf pro Kalendertag (gestapelt)",
-                        barmode="stack",
-                        labels={"FTE": "FTE"}
-                    )
-                    fig_fte.update_layout(
-                        plot_bgcolor="#1a1a1a",
-                        paper_bgcolor="#1a1a1a",
-                        font_color="#ffffff"
-                    )
-                    st.plotly_chart(fig_fte, use_container_width=True)
-
-                    # Tabelle: Aufgerundete FTE pro Kalendertag pro Qualifikation
-                    df_rund = df_fte.copy()
-                    df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
-                    df_rund = df_rund[["Kalendertag", "Qualifikation", "Aufgerundete FTE"]]
-                    df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
-                    st.markdown("### Aufgerundete FTE je Tag und Qualifikation")
-                    st.dataframe(df_rund)
-                else:
-                    st.info("Keine Daten für taktbasierte Darstellung vorhanden.")
-
-    else:
-        st.warning("Keine Daten geladen.")
+            st.markdown("### 📋 Aufgerundete FTE je Tag & Qualifikation")
+            df_rund = df_fte.copy()
+            df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
+            df_rund = df_rund[["Kalendertag", "Qualifikation", "Aufgerundete FTE"]]
+            df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
+            st.dataframe(df_rund)
 
 
 # --- Footer / Info für .exe-Nutzung ---
