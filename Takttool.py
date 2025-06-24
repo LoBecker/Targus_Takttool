@@ -273,9 +273,7 @@ def arbeitstag_ab(start: datetime.date, tage: int):
         if ist_arbeitstag(current):
             tag_count += 1
     return current
-
-
-# --- Tab 1: Montageplanung ---
+# --- Tab 1: Montageplanung EW1 ---
 with tab1:
     df = df_ew1
 
@@ -328,10 +326,10 @@ with tab1:
 
     with col_gantt:
         if not df_filtered.empty:
-            # ✅ Gantt-Fix: Nur gültige Datumswerte verwenden
-            df_filtered["Start"] = pd.to_datetime(df_filtered["Datum \nStart (Berechnet)"], errors="coerce")
-            df_filtered = df_filtered[df_filtered["Start"].notna()]
-            df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"], unit="h")
+            # Startzeit = Tag (MAP) - 1 um 6 Uhr
+            df_filtered["Start"] = pd.to_datetime("06:00:00", format="%H:%M:%S") + pd.to_timedelta(df_filtered["Tag (MAP)"] - 1, unit="D")
+            # Ende = max. 14 Uhr, d.h. 8 Stunden
+            df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"].clip(upper=8), unit="h")
 
             fig_gantt = px.timeline(
                 df_filtered,
@@ -352,7 +350,7 @@ with tab1:
                 )
             )
             fig_gantt.update_layout(
-                xaxis_title="Datum",
+                xaxis_title="Zeit",
                 yaxis_title=None,
                 plot_bgcolor="#1a1a1a",
                 paper_bgcolor="#1a1a1a",
