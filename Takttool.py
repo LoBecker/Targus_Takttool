@@ -292,14 +292,12 @@ with tab1:
         key="tag_slider_fullwidth"
     )
 
-    # --- Zeitachse simulieren auf Basis von Tag & Takt (ohne Datum) ---
+    # --- Gantt-Daten vorbereiten ---
     df["Tag (MAP)"] = df["Tag (MAP)"].astype(int)
-    df["Start"] = (df["Tag (MAP)"] * 10 + df["Takt"]) * 10  # Minuten-Ersatzwert
-    df["Ende"] = df["Start"] + (df["Stunden"] * 60)
-    df["Start"] = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Start"], unit="m")
-    df["Ende"] = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Ende"], unit="m")
+    df["Start"] = df["Tag (MAP)"]
+    df["Ende"] = df["Start"] + df["Stunden"] / 8  # 8 Std. = 1 Tag
 
-    # --- Filter auf ausgewählten Tag-Bereich anwenden ---
+    # --- Filter auf gewählten Bereich anwenden ---
     df_filtered = df[df["Tag (MAP)"].between(tag_range[0], tag_range[1])].copy()
 
     # --- Tabelle und Gantt nebeneinander ---
@@ -340,10 +338,21 @@ with tab1:
                 x_end="Ende",
                 y="Inhalt",
                 color="Qualifikation",
-                title="Ablaufplanung"
+                title="Ablaufplanung",
+                custom_data=["Tag (MAP)", "Bauraum", "Stunden"]
             )
             fig_gantt.update_yaxes(autorange="reversed")
+            fig_gantt.update_traces(
+                hovertemplate=(
+                    "Tag: %{customdata[0]}<br>" +
+                    "Bauraum: %{customdata[1]}<br>" +
+                    "Stunden: %{customdata[2]}<br>" +
+                    "Inhalt: %{y}<extra></extra>"
+                )
+            )
             fig_gantt.update_layout(
+                xaxis_title="Tag (MAP)",
+                yaxis_title=None,
                 plot_bgcolor="#1a1a1a",
                 paper_bgcolor="#1a1a1a",
                 font_color="#ffffff",
