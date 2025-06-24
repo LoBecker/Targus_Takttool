@@ -163,9 +163,17 @@ def lade_und_verarbeite_datei(uploaded_file):
                 df["Takt"] = 1
 
             # --- Soll-Zeit bereinigen & Stunden berechnen ---
+            # --- Soll-Zeit bereinigen & Stunden berechnen ---
             df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(",", ".", regex=False)
-            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce").fillna(0)
-            df["Stunden"] = df["Stunden"].apply(lambda x: max(x, 0.1))
+            df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce")
+            
+            # Warnung bei nicht lesbaren Zeitwerten
+            anzahl_na = df["Stunden"].isna().sum()
+            if anzahl_na > 0:
+                st.warning(f"{anzahl_na} Zeiteinträge konnten nicht gelesen werden und werden ignoriert.")
+            
+            # Ungültige Zeilen entfernen
+            df = df[df["Stunden"].notna()]
 
             # --- Zusätzliche Spalte für eindeutige Zuordnung ---
             df["Tag_Takt"] = df["Tag (MAP)"].astype(str) + "_T" + df["Takt"].astype(str)
