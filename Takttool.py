@@ -801,12 +801,11 @@ with tab4:
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
+
 # --- Tab 5: Personalplanung ---
 with tab5:
-    # --- Auswahl: 5 oder 7 Tage Planung ---
     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True)
 
-    # --- Eingabefeld für FTE-Stunden ---
     if "fte_stunden" not in st.session_state:
         st.session_state["fte_stunden"] = 8
 
@@ -818,7 +817,6 @@ with tab5:
         key="fte_stunden"
     )
 
-    # --- DropDown-Zuweisung der Pläne pro Wagenkasten ---
     plan_mapping = {
         "EW1": df_ew1,
         "EW2": df_ew2,
@@ -826,7 +824,7 @@ with tab5:
         "MW2": df_mw2
     }
 
-    st.markdown("###  Auswahl des Montageplans pro Wagenkasten")
+    st.markdown("### Auswahl des Montageplans pro Wagenkasten")
 
     wagenkästen = [f"Wagenkasten {i}" for i in range(1, 13)]
     zugewiesene_pläne = {}
@@ -839,16 +837,9 @@ with tab5:
             key=f"plan_select_{wk}"
         )
 
-    st.markdown("###  Belegung der MAP-Tage über Checkbox-Matrix")
+    st.markdown("### Belegung der MAP-Tage über Checkbox-Matrix")
 
-    # Alle MAP-Tage aus allen Plänen sammeln
-    alle_tags = set()
-    for df in plan_mapping.values():
-        if "Tag" in df.columns:
-            alle_tags.update(df["Tag"].dropna().astype(int).tolist())
-
-    tag_map_liste = sorted(alle_tags)[:23]  # Statt 21 nun 23 Tage
-
+    tag_map_liste = list(range(1, 24))
     zuordnung = {tag_map: [] for tag_map in tag_map_liste}
 
     header_cols = st.columns([1] + [1] * len(wagenkästen))
@@ -876,7 +867,6 @@ with tab5:
 
             if st.session_state.get(key, False):
                 zuordnung[tag_map].append((wk_idx, wk))
-    # --- Auswertung starten ---
     submitted = st.button("Berechne Personalbedarf")
 
     if submitted:
@@ -893,24 +883,34 @@ with tab5:
 
         if fehler_wagen:
             fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
-            st.error(f" Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
+            st.error(f"Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
             st.stop()
 
-        # --- Daten aggregieren pro zugewiesenem Plan ---
         df_gesamt = pd.DataFrame()
-        for tag_map, einträge in zuordnung.items():
-            for wk_idx, wk in einträge:
-                plan_name = zugewiesene_pläne[wk]
-                df_source = plan_mapping[plan_name]
-                df_part = df_source[df_source["Tag"] == tag_map].copy()
 
+        for wk_idx in range(12):
+            wk = f"Wagenkasten {wk_idx + 1}"
+            if wk not in zugewiesene_pläne:
+                continue
+
+            belegte_tage = sorted([
+                tag for tag, einträge in zuordnung.items()
+                if any(w == wk for _, w in einträge)
+            ])
+
+            if not belegte_tage:
+                continue
+
+            plan_name = zugewiesene_pläne[wk]
+            df_source = plan_mapping[plan_name]
+
+            for i, tag in enumerate(belegte_tage):
+                df_part = df_source[df_source["Tag"] == tag].copy()
                 if not df_part.empty:
-                    df_part["Stunden"] *= 1
-                    df_part["Kalendertag"] = tag_map
+                    df_part["Kalendertag"] = i + 1
                     df_gesamt = pd.concat([df_gesamt, df_part], ignore_index=True)
-
         if df_gesamt.empty:
-            st.info("ℹKeine Aufgaben für die gewählte Planung gefunden.")
+            st.info("Keine Aufgaben für die gewählte Planung gefunden.")
         else:
             st.subheader("Personalbedarf gesamt")
             gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
@@ -955,13 +955,12 @@ with tab5:
             )
             st.plotly_chart(fig_fte, use_container_width=True)
 
-            st.markdown("###  Aufgerundete FTE je Tag & Qualifikation")
+            st.markdown("### Aufgerundete FTE je Tag & Qualifikation")
             df_rund = df_fte.copy()
             df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
             df_rund = df_rund[["Kalendertag", "Qualifikation", "Aufgerundete FTE"]]
             df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
             st.dataframe(df_rund)
-
 
 # --- Footer / Info für .exe-Nutzung ---
 st.markdown("""---""")
