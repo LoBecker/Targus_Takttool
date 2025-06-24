@@ -826,7 +826,7 @@ with tab5:
         "MW2": df_mw2
     }
 
-    st.markdown("### 🔄 Auswahl des Montageplans pro Wagenkasten")
+    st.markdown("###  Auswahl des Montageplans pro Wagenkasten")
 
     wagenkästen = [f"Wagenkasten {i}" for i in range(1, 13)]
     zugewiesene_pläne = {}
@@ -839,7 +839,7 @@ with tab5:
             key=f"plan_select_{wk}"
         )
 
-    st.markdown("### ✅ Belegung der MAP-Tage über Checkbox-Matrix")
+    st.markdown("###  Belegung der MAP-Tage über Checkbox-Matrix")
 
     # Alle MAP-Tage aus allen Plänen sammeln
     alle_tags = set()
@@ -893,7 +893,7 @@ with tab5:
 
         if fehler_wagen:
             fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
-            st.error(f"❌ Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
+            st.error(f" Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
             st.stop()
 
         # --- Daten aggregieren pro zugewiesenem Plan ---
@@ -910,14 +910,14 @@ with tab5:
                     df_gesamt = pd.concat([df_gesamt, df_part], ignore_index=True)
 
         if df_gesamt.empty:
-            st.info("ℹ️ Keine Aufgaben für die gewählte Planung gefunden.")
+            st.info("ℹKeine Aufgaben für die gewählte Planung gefunden.")
         else:
-            st.subheader("📊 Personalbedarf gesamt")
+            st.subheader("Personalbedarf gesamt")
             gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
             gruppe["FTE"] = gruppe["Stunden"] / fte_basis
             st.dataframe(gruppe)
 
-            st.markdown("### 📉 Stundenbedarf pro Kalendertag")
+            st.markdown("### Stundenbedarf pro Kalendertag")
             df_plot = df_gesamt.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
 
             fig = px.bar(
@@ -935,7 +935,7 @@ with tab5:
             )
             st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("### 👥 FTE-Bedarf pro Kalendertag")
+            st.markdown("### FTE-Bedarf pro Kalendertag")
             df_fte = df_plot.copy()
             df_fte["FTE"] = df_fte["Stunden"] / fte_basis
 
@@ -955,7 +955,7 @@ with tab5:
             )
             st.plotly_chart(fig_fte, use_container_width=True)
 
-            st.markdown("### 📋 Aufgerundete FTE je Tag & Qualifikation")
+            st.markdown("###  Aufgerundete FTE je Tag & Qualifikation")
             df_rund = df_fte.copy()
             df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
             df_rund = df_rund[["Kalendertag", "Qualifikation", "Aufgerundete FTE"]]
