@@ -869,7 +869,7 @@ with tab5:
                 zuordnung[tag_map].append((wk_idx, wk))
     submitted = st.button("Berechne Personalbedarf")
 
-    if submitted:
+       if submitted:
         fehler_wagen = []
         belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
 
@@ -909,14 +909,10 @@ with tab5:
                 if not df_part.empty:
                     df_part["Kalendertag"] = i + 1
                     df_gesamt = pd.concat([df_gesamt, df_part], ignore_index=True)
+
         if df_gesamt.empty:
             st.info("Keine Aufgaben für die gewählte Planung gefunden.")
         else:
-            #st.subheader("Personalbedarf gesamt")
-            #gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
-            #gruppe["FTE"] = gruppe["Stunden"] / fte_basis
-            #st.dataframe(gruppe)
-
             st.markdown("### Stundenbedarf pro Kalendertag")
             df_plot = df_gesamt.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
 
@@ -962,10 +958,12 @@ with tab5:
             df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
             st.dataframe(df_rund)
 
-            st.subheader("Personalbedarf gesamt")
+            st.markdown("---")
+            st.markdown("### 🔢 Gesamtstunden & FTE je Qualifikation")
             gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
             gruppe["FTE"] = gruppe["Stunden"] / fte_basis
             st.dataframe(gruppe)
+
 
 # --- Footer / Info für .exe-Nutzung ---
 st.markdown("""---""")
