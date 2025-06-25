@@ -880,100 +880,100 @@ with tab5:
                 zuordnung[tag_map].append((wk_idx, wk))
     submitted = st.button("Berechne Personalbedarf")
 
-       if submitted:
-        fehler_wagen = []
-        belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
+   if submitted:
+    fehler_wagen = []
+    belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
 
-        for tag_map, einträge in zuordnung.items():
-            for _, wk in einträge:
-                belegung_pro_wagen[wk] += 1
+    for tag_map, einträge in zuordnung.items():
+        for _, wk in einträge:
+            belegung_pro_wagen[wk] += 1
 
-        for wk, count in belegung_pro_wagen.items():
-            if count != 0 and count != planungstage:
-                fehler_wagen.append((wk, count))
+    for wk, count in belegung_pro_wagen.items():
+        if count != 0 and count != planungstage:
+            fehler_wagen.append((wk, count))
 
-        if fehler_wagen:
-            fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
-            st.error(f"Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
-            st.stop()
+    if fehler_wagen:
+        fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
+        st.error(f"Fehler: Die folgenden Wagenkästen haben nicht exakt {planungstage} Häkchen (oder null): {fehltext}")
+        st.stop()
 
-        df_gesamt = pd.DataFrame()
+    df_gesamt = pd.DataFrame()
 
-        for wk_idx in range(12):
-            wk = f"Wagenkasten {wk_idx + 1}"
-            if wk not in zugewiesene_pläne:
-                continue
+    for wk_idx in range(12):
+        wk = f"Wagenkasten {wk_idx + 1}"
+        if wk not in zugewiesene_pläne:
+            continue
 
-            belegte_tage = sorted([
-                tag for tag, einträge in zuordnung.items()
-                if any(w == wk for _, w in einträge)
-            ])
+        belegte_tage = sorted([
+            tag for tag, einträge in zuordnung.items()
+            if any(w == wk for _, w in einträge)
+        ])
 
-            if not belegte_tage:
-                continue
+        if not belegte_tage:
+            continue
 
-            plan_name = zugewiesene_pläne[wk]
-            df_source = plan_mapping[plan_name]
+        plan_name = zugewiesene_pläne[wk]
+        df_source = plan_mapping[plan_name]
 
-            for i, tag in enumerate(belegte_tage):
-                df_part = df_source[df_source["Tag"] == tag].copy()
-                if not df_part.empty:
-                    df_part["Kalendertag"] = i + 1
-                    df_gesamt = pd.concat([df_gesamt, df_part], ignore_index=True)
+        for i, tag in enumerate(belegte_tage):
+            df_part = df_source[df_source["Tag"] == tag].copy()
+            if not df_part.empty:
+                df_part["Kalendertag"] = i + 1
+                df_gesamt = pd.concat([df_gesamt, df_part], ignore_index=True)
 
-        if df_gesamt.empty:
-            st.info("Keine Aufgaben für die gewählte Planung gefunden.")
-        else:
-            st.markdown("### Stundenbedarf pro Kalendertag")
-            df_plot = df_gesamt.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
+    if df_gesamt.empty:
+        st.info("Keine Aufgaben für die gewählte Planung gefunden.")
+    else:
+        st.markdown("### Stundenbedarf pro Kalendertag")
+        df_plot = df_gesamt.groupby(["Kalendertag", "Qualifikation"])["Stunden"].sum().reset_index()
 
-            fig = px.bar(
-                df_plot,
-                x="Kalendertag",
-                y="Stunden",
-                color="Qualifikation",
-                barmode="stack",
-                title="Stundenbedarf pro Tag"
-            )
-            fig.update_layout(
-                plot_bgcolor="#1a1a1a",
-                paper_bgcolor="#1a1a1a",
-                font_color="#ffffff"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        fig = px.bar(
+            df_plot,
+            x="Kalendertag",
+            y="Stunden",
+            color="Qualifikation",
+            barmode="stack",
+            title="Stundenbedarf pro Tag"
+        )
+        fig.update_layout(
+            plot_bgcolor="#1a1a1a",
+            paper_bgcolor="#1a1a1a",
+            font_color="#ffffff"
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-            st.markdown("### FTE-Bedarf pro Kalendertag")
-            df_fte = df_plot.copy()
-            df_fte["FTE"] = df_fte["Stunden"] / fte_basis
+        st.markdown("### FTE-Bedarf pro Kalendertag")
+        df_fte = df_plot.copy()
+        df_fte["FTE"] = df_fte["Stunden"] / fte_basis
 
-            fig_fte = px.bar(
-                df_fte,
-                x="Kalendertag",
-                y="FTE",
-                color="Qualifikation",
-                barmode="stack",
-                title="FTE pro Tag",
-                labels={"FTE": "FTE"}
-            )
-            fig_fte.update_layout(
-                plot_bgcolor="#1a1a1a",
-                paper_bgcolor="#1a1a1a",
-                font_color="#ffffff"
-            )
-            st.plotly_chart(fig_fte, use_container_width=True)
+        fig_fte = px.bar(
+            df_fte,
+            x="Kalendertag",
+            y="FTE",
+            color="Qualifikation",
+            barmode="stack",
+            title="FTE pro Tag",
+            labels={"FTE": "FTE"}
+        )
+        fig_fte.update_layout(
+            plot_bgcolor="#1a1a1a",
+            paper_bgcolor="#1a1a1a",
+            font_color="#ffffff"
+        )
+        st.plotly_chart(fig_fte, use_container_width=True)
 
-            st.markdown("### Aufgerundete FTE je Tag & Qualifikation")
-            df_rund = df_fte.copy()
-            df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
-            df_rund = df_rund[["Kalendertag", "Qualifikation", "Aufgerundete FTE"]]
-            df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
-            st.dataframe(df_rund)
+        st.markdown("### Aufgerundete FTE je Tag & Qualifikation")
+        df_rund = df_fte.copy()
+        df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
+        df_rund = df_rund[["Kalendertag", "Qualifikation", "Aufgerundete FTE"]]
+        df_rund.columns = ["Tag", "Qualifikation", "Aufgerundete FTE"]
+        st.dataframe(df_rund)
 
-            st.markdown("---")
-            st.markdown("### 🔢 Gesamtstunden & FTE je Qualifikation")
-            gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
-            gruppe["FTE"] = gruppe["Stunden"] / fte_basis
-            st.dataframe(gruppe)
+        st.markdown("---")
+        st.markdown("### 🔢 Gesamtstunden & FTE je Qualifikation")
+        gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
+        gruppe["FTE"] = gruppe["Stunden"] / fte_basis
+        st.dataframe(gruppe)
 
 
 # --- Footer / Info für .exe-Nutzung ---
