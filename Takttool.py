@@ -213,34 +213,40 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
-# --- Upload-Felder für vier Linien ---
+# --- Datei-Upload: Vier Spalten, vier Dateien ---
 upload_cols = st.columns(4)
 uploaded_files = {}
 status_boxes = {}
 
 for col, key in zip(upload_cols, ["EW1", "EW2", "MW1", "MW2"]):
     with col:
-        uploaded_files[key] = st.file_uploader(f"Upload für {key}", type=["csv", "xlsx"], key=f"file_{key}")
+        uploaded_files[key] = st.file_uploader(
+            f"Upload für {key}",
+            type=["csv", "xlsx"],
+            key=f"file_{key}"
+        )
         status_boxes[key] = st.empty()
 
         if uploaded_files[key] is not None:
             try:
-                # Vorverarbeitung – Dummy-Eintrag, damit du später noch weiterverarbeiten kannst
-                tmp_df = pd.read_excel(uploaded_files[key], engine="openpyxl") \
-                    if uploaded_files[key].name.endswith(".xlsx") else pd.read_csv(uploaded_files[key])
-
+                # Testeinlesen (nicht gespeichert), nur zur Prüfung
+                _ = (
+                    pd.read_excel(uploaded_files[key], engine="openpyxl")
+                    if uploaded_files[key].name.endswith(".xlsx")
+                    else pd.read_csv(uploaded_files[key])
+                )
                 status_boxes[key].success("✅ Verarbeitet und bereit")
                 time.sleep(5)
                 status_boxes[key].empty()
-
             except Exception as e:
                 status_boxes[key].error(f"❌ Fehler beim Einlesen: {e}")
 
-# --- Datenverarbeitung ---
-df_ew1 = lade_und_verarbeite_datei(file_ew1)
-df_ew2 = lade_und_verarbeite_datei(file_ew2)
-df_mw1 = lade_und_verarbeite_datei(file_mw1)
-df_mw2 = lade_und_verarbeite_datei(file_mw2)
+# --- Datenverarbeitung mit Übergabe an deine eigene Funktion ---
+df_ew1 = lade_und_verarbeite_datei(uploaded_files.get("EW1"))
+df_ew2 = lade_und_verarbeite_datei(uploaded_files.get("EW2"))
+df_mw1 = lade_und_verarbeite_datei(uploaded_files.get("MW1"))
+df_mw2 = lade_und_verarbeite_datei(uploaded_files.get("MW2"))
+
 
 # --- Sicherheitsnetz für fehlende Spalten ---
 minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt", "Datum_Start"]
