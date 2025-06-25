@@ -214,16 +214,27 @@ def zeige_logo_und_titel():
 zeige_logo_und_titel()
 
 # --- Upload-Felder für vier Linien ---
-col_ew1, col_ew2, col_mw1, col_mw2 = st.columns(4)
+upload_cols = st.columns(4)
+uploaded_files = {}
+status_boxes = {}
 
-with col_ew1:
-    file_ew1 = st.file_uploader("Upload für EW1", type=["csv", "xlsx"], key="file_ew1")
-with col_ew2:
-    file_ew2 = st.file_uploader("Upload für EW2", type=["csv", "xlsx"], key="file_ew2")
-with col_mw1:
-    file_mw1 = st.file_uploader("Upload für MW1", type=["csv", "xlsx"], key="file_mw1")
-with col_mw2:
-    file_mw2 = st.file_uploader("Upload für MW2", type=["csv", "xlsx"], key="file_mw2")
+for col, key in zip(upload_cols, ["EW1", "EW2", "MW1", "MW2"]):
+    with col:
+        uploaded_files[key] = st.file_uploader(f"Upload für {key}", type=["csv", "xlsx"], key=f"file_{key}")
+        status_boxes[key] = st.empty()
+
+        if uploaded_files[key] is not None:
+            try:
+                # Vorverarbeitung – Dummy-Eintrag, damit du später noch weiterverarbeiten kannst
+                tmp_df = pd.read_excel(uploaded_files[key], engine="openpyxl") \
+                    if uploaded_files[key].name.endswith(".xlsx") else pd.read_csv(uploaded_files[key])
+
+                status_boxes[key].success("✅ Verarbeitet und bereit")
+                time.sleep(5)
+                status_boxes[key].empty()
+
+            except Exception as e:
+                status_boxes[key].error(f"❌ Fehler beim Einlesen: {e}")
 
 # --- Datenverarbeitung ---
 df_ew1 = lade_und_verarbeite_datei(file_ew1)
