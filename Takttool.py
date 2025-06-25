@@ -295,7 +295,11 @@ with tab1:
 
     # --- Zeitraum wählen (Slider über die gesamte Breite) ---
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    
+    if df is not None and "Tag" in df.columns:
+        tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    else:
+        tag_liste = []
     if not tag_liste:
         st.warning("Keine gültigen Tag-Werte vorhanden.")
         st.stop()
@@ -824,7 +828,7 @@ with tab4:
 
 # --- Tab 5: Personalplanung ---
 with tab5:
-    planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True)
+    planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
 
     if "fte_stunden" not in st.session_state:
         st.session_state["fte_stunden"] = 8
