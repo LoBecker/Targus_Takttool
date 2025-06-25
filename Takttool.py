@@ -176,7 +176,7 @@ def lade_und_verarbeite_datei(uploaded_file):
             # --- Kombispalte für spätere Filterung ---
             df["Tag_Takt"] = df["Tag"].astype(str) + "_T" + df["Takt"].astype(str)
 
-            st.success(f"Datei **{uploaded_file.name}** erfolgreich verarbeitet.")
+            #st.success(f"Datei **{uploaded_file.name}** erfolgreich verarbeitet.")
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
