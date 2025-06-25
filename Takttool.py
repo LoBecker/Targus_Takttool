@@ -825,12 +825,9 @@ with tab4:
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
-
-# --- Tab 5: Personalplanung ---
-
 # --- Tab 5: Personalplanung ---
 with tab5:
-     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
+    planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
 
     if "fte_stunden" not in st.session_state:
         st.session_state["fte_stunden"] = 8
@@ -840,7 +837,7 @@ with tab5:
         min_value=1,
         max_value=24,
         step=1,
-        key="fte_stunden"
+        key="fte_stunden_input"
     )
 
     plan_mapping = {
@@ -990,7 +987,6 @@ with tab5:
             gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
             gruppe["FTE"] = gruppe["Stunden"] / fte_basis
             st.dataframe(gruppe)
-
    
 # --- Footer / Info für .exe-Nutzung ---
 st.markdown("""---""")
