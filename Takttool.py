@@ -225,21 +225,24 @@ for col, key in zip(upload_cols, ["EW1", "EW2", "MW1", "MW2"]):
             type=["csv", "xlsx"],
             key=f"file_{key}"
         )
-        status_boxes[key] = st.empty()
+        status_box = st.empty()  # Direkt im Context der Spalte
 
         if uploaded_files[key] is not None:
             try:
-                # Testeinlesen (nicht gespeichert), nur zur Prüfung
+                # Testweise Einlesen, um zu prüfen ob Datei lesbar ist
                 _ = (
                     pd.read_excel(uploaded_files[key], engine="openpyxl")
                     if uploaded_files[key].name.endswith(".xlsx")
                     else pd.read_csv(uploaded_files[key])
                 )
-                status_boxes[key].success("✅ Verarbeitet und bereit")
+
+                # Erfolgsmeldung anzeigen und später ausblenden
+                status_box.success("✅ Verarbeitet und bereit")
                 time.sleep(5)
-                status_boxes[key].empty()
+                status_box.empty()
+
             except Exception as e:
-                status_boxes[key].error(f"❌ Fehler beim Einlesen: {e}")
+                status_box.error(f"❌ Fehler beim Einlesen: {e}")
 
 # --- Datenverarbeitung mit Übergabe an deine eigene Funktion ---
 df_ew1 = lade_und_verarbeite_datei(uploaded_files.get("EW1"))
