@@ -827,74 +827,10 @@ with tab4:
 
 
 # --- Tab 5: Personalplanung ---
-with tab5:
-    planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
 
-    if "fte_stunden" not in st.session_state:
-        st.session_state["fte_stunden"] = 8
-
-    fte_basis = st.number_input(
-        "Wieviele Stunden arbeitet ein FTE pro Tag?",
-        min_value=1,
-        max_value=24,
-        step=1,
-        key="fte_stunden"
-    )
-
-    plan_mapping = {
-        "EW1": df_ew1,
-        "EW2": df_ew2,
-        "MW1": df_mw1,
-        "MW2": df_mw2
-    }
-
-    st.markdown("### Auswahl des Montageplans pro Wagenkasten")
-
-    wagenkästen = [f"Wagenkasten {i}" for i in range(1, 13)]
-    zugewiesene_pläne = {}
-
-    plan_row = st.columns(len(wagenkästen))
-    for i, wk in enumerate(wagenkästen):
-        zugewiesene_pläne[wk] = plan_row[i].selectbox(
-            f"{wk}",
-            options=["EW1", "EW2", "MW1", "MW2"],
-            key=f"plan_select_{wk}"
-        )
-
-    st.markdown("### Belegung der MAP-Tage über Checkbox-Matrix")
-
-    tag_map_liste = list(range(1, 24))
-    zuordnung = {tag_map: [] for tag_map in tag_map_liste}
-
-    header_cols = st.columns([1] + [1] * len(wagenkästen))
-    header_cols[0].markdown("**MAP-Tag**")
-    for i, wk in enumerate(wagenkästen):
-        header_cols[i + 1].markdown(f"**{wk}**")
-
-    for tag_idx, tag_map in enumerate(tag_map_liste):
-        cols = st.columns([1] + [1] * len(wagenkästen))
-        cols[0].markdown(f"{tag_map}")
-
-        for wk_idx, wk in enumerate(wagenkästen):
-            key = f"wk{wk_idx}_tag{tag_map}"
-            current_value = st.session_state.get(key, False)
-
-            checkbox_clicked = cols[wk_idx + 1].checkbox("", value=current_value, key=key)
-
-            if checkbox_clicked and not current_value:
-                offset = planungstage // 2
-                start = max(0, tag_idx - offset)
-                end = min(len(tag_map_liste), tag_idx + offset + 1)
-                for i in range(start, end):
-                    st.session_state[f"wk{wk_idx}_tag{tag_map_liste[i]}"] = True
-                st.rerun()
-
-            if st.session_state.get(key, False):
-                zuordnung[tag_map].append((wk_idx, wk))
-    submitted = st.button("Berechne Personalbedarf")
 # --- Tab 5: Personalplanung ---
 with tab5:
-    planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True)
+     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
 
     if "fte_stunden" not in st.session_state:
         st.session_state["fte_stunden"] = 8
