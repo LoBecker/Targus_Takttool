@@ -220,29 +220,28 @@ status_boxes = {}
 
 for col, key in zip(upload_cols, ["EW1", "EW2", "MW1", "MW2"]):
     with col:
-        uploaded_files[key] = st.file_uploader(
-            f"Upload für {key}",
-            type=["csv", "xlsx"],
-            key=f"file_{key}"
-        )
-        status_box = st.empty()  # Direkt im Context der Spalte
+        uploaded_files[key] = st.file_uploader(f"Upload für {key}", type=["csv", "xlsx"], key=f"file_{key}")
+        status_boxes[key] = st.empty()
 
-        if uploaded_files[key] is not None:
+        if uploaded_files[key] is not None and not st.session_state.get(f"upload_ok_{key}", False):
             try:
-                # Testweise Einlesen, um zu prüfen ob Datei lesbar ist
-                _ = (
-                    pd.read_excel(uploaded_files[key], engine="openpyxl")
-                    if uploaded_files[key].name.endswith(".xlsx")
-                    else pd.read_csv(uploaded_files[key])
-                )
+                tmp_df = pd.read_excel(uploaded_files[key], engine="openpyxl") \
+                    if uploaded_files[key].name.endswith(".xlsx") else pd.read_csv(uploaded_files[key])
 
-                # Erfolgsmeldung anzeigen und später ausblenden
-                status_box.success("✅ Verarbeitet und bereit")
-                time.sleep(5)
-                status_box.empty()
+                st.session_state[f"upload_ok_{key}"] = True
+                st.session_state[f"upload_shown_{key}"] = False  # Zurücksetzen, damit Nachricht gleich erscheint
 
             except Exception as e:
-                status_box.error(f"❌ Fehler beim Einlesen: {e}")
+                status_boxes[key].error(f"❌ Fehler beim Einlesen: {e}")
+                st.session_state[f"upload_ok_{key}"] = False
+
+        # Nur anzeigen, wenn verarbeitet und noch nicht dauerhaft gemeldet
+        if st.session_state.get(f"upload_ok_{key}", False) and not st.session_state.get(f"upload_shown_{key}", False):
+            status_boxes[key].success("✅ Verarbeitet und bereit")
+            time.sleep(2)
+            status_boxes[key].empty()
+            st.session_state[f"upload_shown_{key}"] = True
+
 
 # --- Datenverarbeitung mit Übergabe an deine eigene Funktion ---
 df_ew1 = lade_und_verarbeite_datei(uploaded_files.get("EW1"))
