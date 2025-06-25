@@ -827,6 +827,21 @@ with tab4:
 
 # --- Tab 5: Personalplanung ---
 with tab5:
+    # Dynamische Plan-Zuordnung je nach vorhandenen Dateien
+    plan_mapping = {}
+    if df_ew1 is not None and not df_ew1.empty:
+        plan_mapping["EW1"] = df_ew1
+    if df_ew2 is not None and not df_ew2.empty:
+        plan_mapping["EW2"] = df_ew2
+    if df_mw1 is not None and not df_mw1.empty:
+        plan_mapping["MW1"] = df_mw1
+    if df_mw2 is not None and not df_mw2.empty:
+        plan_mapping["MW2"] = df_mw2
+
+    if not plan_mapping:
+        st.warning("Bitte lade mindestens einen Montageplan hoch.")
+        st.stop()
+
     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
 
     if "fte_stunden" not in st.session_state:
@@ -837,15 +852,8 @@ with tab5:
         min_value=1,
         max_value=24,
         step=1,
-        key="fte_stunden_input"
+        key="fte_stunden"
     )
-
-    plan_mapping = {
-        "EW1": df_ew1,
-        "EW2": df_ew2,
-        "MW1": df_mw1,
-        "MW2": df_mw2
-    }
 
     st.markdown("### Auswahl des Montageplans pro Wagenkasten")
 
@@ -856,9 +864,10 @@ with tab5:
     for i, wk in enumerate(wagenkästen):
         zugewiesene_pläne[wk] = plan_row[i].selectbox(
             f"{wk}",
-            options=["EW1", "EW2", "MW1", "MW2"],
+            options=list(plan_mapping.keys()),
             key=f"plan_select_{wk}"
         )
+
 
     st.markdown("### Belegung der MAP-Tage über Checkbox-Matrix")
 
