@@ -5,14 +5,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
+import plotly.graph_objects as go  # NEU: für die Ø-Linie
 from datetime import datetime, timedelta
 import base64
 import os
 import sys
 from pathlib import Path
-
-# NEU: für Auto-Vorschlag im Mapping
-import difflib
+import difflib  # NEU: Auto-Vorschlag für Mapping
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -126,6 +125,7 @@ if "geladen" not in st.session_state:
     </style>
 """, unsafe_allow_html=True)
 
+# --- Bestehende Verarbeitung (unverändert) ---
 def lade_und_verarbeite_datei(uploaded_file):
     df = pd.DataFrame()
     if uploaded_file is not None:
@@ -179,7 +179,6 @@ def lade_und_verarbeite_datei(uploaded_file):
             # --- Kombispalte für spätere Filterung ---
             df["Tag_Takt"] = df["Tag"].astype(str) + "_T" + df["Takt"].astype(str)
 
-            #st.success(f"Datei **{uploaded_file.name}** erfolgreich verarbeitet.")
         except Exception as e:
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
@@ -428,7 +427,7 @@ with tab_setup:
 
     st.info("Nach 'Übernehmen' verwenden die Montage‑Tabs und die Personalplanung automatisch die gemappten Daten aus diesem Tab.")
 
-# --- Datenverarbeitung (aus Einrichtung) ---
+# --- Daten aus Einrichtung ---
 df_ew1 = st.session_state["df_EW1"]
 df_ew2 = st.session_state["df_EW2"]
 df_mw1 = st.session_state["df_MW1"]
@@ -438,6 +437,8 @@ df_mw2 = st.session_state["df_MW2"]
 minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt", "Datum_Start"]
 
 def ergänze_fehlende_spalten(df):
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=minimale_spalten)
     for spalte in minimale_spalten:
         if spalte not in df.columns:
             df[spalte] = ""
@@ -448,9 +449,48 @@ df_ew2 = ergänze_fehlende_spalten(df_ew2)
 df_mw1 = ergänze_fehlende_spalten(df_mw1)
 df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
-# --- Tabs für Planung ---
-st.divider()
-# (Tabs sind bereits oben angelegt)
+# --- Helper: Balkenplot mit Ø-Linie ---
+def bar_with_mean(df_plot, x, y, color, title, height=300):
+    """
+    Gestapelter Balkenplot (px.bar) + horizontale Ø-Linie über alle dargestellten Tage.
+    Ø wird als Mittel der pro-Tag-Summen (y) berechnet.
+    """
+    fig = px.bar(
+        df_plot,
+        x=x, y=y, color=color,
+        barmode="stack", title=title, height=height
+    )
+    try:
+        mean_val = df_plot.groupby(x)[y].sum().mean()
+        xs = sorted(df_plot[x].dropna().unique())
+        if len(xs) > 0 and pd.notna(mean_val):
+            fig.add_trace(go.Scatter(
+                x=xs,
+                y=[mean_val] * len(xs),
+                mode="lines",
+                name="Ø pro Tag",
+                line=dict(dash="dash", width=2),
+                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
+            ))
+            fig.add_annotation(
+                x=xs[-1],
+                y=mean_val,
+                text=f"Ø {mean_val:.1f}",
+                showarrow=False,
+                xanchor="left",
+                yanchor="bottom",
+                font=dict(color="#FFFFFF")
+            )
+    except Exception:
+        pass
+
+    fig.update_layout(
+        plot_bgcolor="#1a1a1a",
+        paper_bgcolor="#1a1a1a",
+        font_color="#ffffff",
+        legend_title_text=None
+    )
+    return fig
 
 # --- Feiertage definieren ---
 FEIERTAGE = [
@@ -478,23 +518,23 @@ with tab1:
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
     if df is not None and "Tag" in df.columns:
-        tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+        tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
     else:
         tag_liste = []
     if not tag_liste:
         st.warning("Keine gültigen Tag-Werte vorhanden.")
         st.stop()
-    tag_min, tag_max = min(tag_liste), max(tag_liste)
+    tag_min, tag_max = int(min(tag_liste)), int(max(tag_liste))
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=int(tag_min),
-        max_value=int(tag_max),
-        value=(int(tag_min), int(tag_max)),
+        min_value=tag_min,
+        max_value=tag_max,
+        value=(tag_min, tag_max),
         key="tag_slider_ew1"
     )
 
-    df["Tag"] = df["Tag"].astype(int)
+    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(tag_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -561,43 +601,35 @@ with tab1:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, field):
-            return df.groupby(["Tag", field])["Stunden"].sum().reset_index()
+        def gruppiere(df_in, field):
+            return df_in.groupby(["Tag", field])["Stunden"].sum().reset_index()
 
-        takte = sorted(df_filtered["Takt"].dropna().unique())
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map = [f"Takt {t}" for t in takte]
+        titel_map = [f"Takt {int(t)}" for t in takte]
 
         col_bauraum, col_quali = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = px.bar(
-                    df_plot,
-                    x="Tag", y="Stunden", color="Bauraum",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Bauraum",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True)
 
         with col_quali:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = px.bar(
-                    df_plot,
-                    x="Tag", y="Stunden", color="Qualifikation",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Qualifikation",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True)
     else:
@@ -608,22 +640,22 @@ with tab2:
     df = df_ew2
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    if "Tag" not in df.columns or df["Tag"].isnull().all():
+    if "Tag" not in df.columns or pd.to_numeric(df["Tag"], errors="coerce").isna().all():
         st.warning("Keine gültigen Tag-Werte für EW2 verfügbar.")
         st.stop()
 
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
-    idx_min, idx_max = min(tag_liste), max(tag_liste)
+    tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
+    idx_min, idx_max = int(min(tag_liste)), int(max(tag_liste))
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=int(idx_min),
-        max_value=int(idx_max),
-        value=(int(idx_min), int(idx_max)),
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
         key="tag_slider_ew2"
     )
 
-    df["Tag"] = df["Tag"].astype(int)
+    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(idx_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -696,41 +728,35 @@ with tab2:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, group_field):
-            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+        def gruppiere(df_in, group_field):
+            return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(df_filtered["Takt"].dropna().unique())
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {t}" for t in takte]
+        titel_map    = [f"Takt {int(t)}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Bauraum",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Bauraum",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_ew2_{i}")
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Qualifikation",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Qualifikation",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_ew2_{i}")
     else:
@@ -741,22 +767,22 @@ with tab3:
     df = df_mw1
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    if "Tag" not in df.columns or df["Tag"].isnull().all():
+    if "Tag" not in df.columns or pd.to_numeric(df["Tag"], errors="coerce").isna().all():
         st.warning("Keine gültigen Tag-Werte für MW1 verfügbar.")
         st.stop()
 
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
-    idx_min, idx_max = min(tag_liste), max(tag_liste)
+    tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
+    idx_min, idx_max = int(min(tag_liste)), int(max(tag_liste))
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=int(idx_min),
-        max_value=int(idx_max),
-        value=(int(idx_min), int(idx_max)),
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
         key="tag_slider_mw1"
     )
 
-    df["Tag"] = df["Tag"].astype(int)
+    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(idx_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -829,41 +855,35 @@ with tab3:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, group_field):
-            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+        def gruppiere(df_in, group_field):
+            return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(df_filtered["Takt"].dropna().unique())
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {t}" for t in takte]
+        titel_map    = [f"Takt {int(t)}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Bauraum",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Bauraum",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_mw1_{i}")
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Qualifikation",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Qualifikation",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_mw1_{i}")
     else:
@@ -874,22 +894,22 @@ with tab4:
     df = df_mw2
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    if "Tag" not in df.columns or df["Tag"].isnull().all():
+    if "Tag" not in df.columns or pd.to_numeric(df["Tag"], errors="coerce").isna().all():
         st.warning("Keine gültigen Tag-Werte für MW2 verfügbar.")
         st.stop()
 
-    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
-    idx_min, idx_max = min(tag_liste), max(tag_liste)
+    tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
+    idx_min, idx_max = int(min(tag_liste)), int(max(tag_liste))
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=int(idx_min),
-        max_value=int(idx_max),
-        value=(int(idx_min), int(idx_max)),
+        min_value=idx_min,
+        max_value=idx_max,
+        value=(idx_min, idx_max),
         key="tag_slider_mw2"
     )
 
-    df["Tag"] = df["Tag"].astype(int)
+    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(idx_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -962,41 +982,35 @@ with tab4:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df, group_field):
-            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+        def gruppiere(df_in, group_field):
+            return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(df_filtered["Takt"].dropna().unique())
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {t}" for t in takte]
+        titel_map    = [f"Takt {int(t)}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Bauraum",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Bauraum",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_mw2_{i}")
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = px.bar(
-                    df_plot, x="Tag", y="Stunden", color="Qualifikation",
-                    barmode="stack", title=titel_map[i], height=300
-                )
-                fig.update_layout(
-                    plot_bgcolor="#1a1a1a",
-                    paper_bgcolor="#1a1a1a",
-                    font_color="#ffffff"
+                fig = bar_with_mean(
+                    df_plot, x="Tag", y="Stunden",
+                    color="Qualifikation",
+                    title=titel_map[i],
+                    height=300
                 )
                 st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_mw2_{i}")
     else:
@@ -1004,7 +1018,7 @@ with tab4:
 
 # --- Tab 5: Personalplanung ---
 with tab5:
-    # Dynamische Plan-Zuordnung je nach vorhandenen Dateien
+    # Dynamische Plan-Zuordnung je nach vorhandenen Daten aus Einrichtung
     plan_mapping = {}
     if df_ew1 is not None and not df_ew1.empty:
         plan_mapping["EW1"] = df_ew1
@@ -1016,7 +1030,7 @@ with tab5:
         plan_mapping["MW2"] = df_mw2
 
     if not plan_mapping:
-        st.warning("Bitte lade mindestens einen Montageplan hoch.")
+        st.warning("Bitte lade mindestens einen Montageplan im Tab 'Einrichtung' hoch und übernehme das Mapping.")
         st.stop()
 
     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
@@ -1096,11 +1110,6 @@ with tab5:
             st.stop()
 
         df_gesamt = pd.DataFrame()
-
-        for wk_idx in range(12):
-            wk = f"Wagenkasten {wk_idx + 1}"
-            if wk not in zugewiesene_pläne:
-                continue
 
         belegte_tage = {
             f"Wagenkasten {i+1}": sorted([
