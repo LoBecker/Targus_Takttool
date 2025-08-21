@@ -12,6 +12,7 @@ import os
 import sys
 from pathlib import Path
 import difflib
+import io
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -65,7 +66,6 @@ DEFAULT_PLAN_TYPES = ["EW1", "EW2", "MW1", "MW2"]
 
 if "plan_types" not in st.session_state:
     st.session_state["plan_types"] = DEFAULT_PLAN_TYPES.copy()
-
 if "num_wagen" not in st.session_state:
     st.session_state["num_wagen"] = 12
 
@@ -146,10 +146,10 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
 
         if out["Datum"].notna().any():
             out["Start"] = out["Datum"] + pd.to_timedelta(6, unit="h")
-            out["Ende"] = out["Start"] + pd.to_timedelta(out["Stunden"].clip(upper=8), unit="h")
+            out["Ende"]  = out["Start"] + pd.to_timedelta(out["Stunden"].clip(upper=8), unit="h")
         else:
             out["Start"] = pd.NaT
-            out["Ende"] = pd.NaT
+            out["Ende"]  = pd.NaT
 
         out["Tag_Takt"] = out["Tag"].astype(str) + "_T" + out["Takt"].astype(str)
         return out.reset_index(drop=True)
@@ -158,7 +158,6 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
         return pd.DataFrame()
 
 def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Sicherheitsnetz – stelle alle erwarteten Spalten bereit."""
     need = ["Datum", "Tag", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum",
             "Stunden", "Start", "Ende", "Tag_Takt"]
     if not isinstance(df, pd.DataFrame) or df.empty:
@@ -196,7 +195,7 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
-# --- Plot Helper ---
+# --- Plot Helper mit Ø-Linie ---
 def bar_with_mean(df_plot, x, y, color, title, height=300):
     fig = px.bar(df_plot, x=x, y=y, color=color, barmode="stack", title=title, height=height)
     try:
@@ -217,7 +216,7 @@ def bar_with_mean(df_plot, x, y, color, title, height=300):
     fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
     return fig
 
-# --- Montage-Tab Renderer (dynamisch für jeden Plan-Typ) ---
+# --- Montage-Tab Renderer ---
 def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, editor_key: str, gantt_key: str, bauraum_prefix: str, quali_prefix: str):
     df = ensure_columns(df)
     st.markdown("#### Zeitraum wählen (nach Tag)")
@@ -236,7 +235,6 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         edited_df = st.data_editor(df_filtered, use_container_width=True, num_rows="dynamic", hide_index=True, key=editor_key)
 
-        import io
         excel_buffer = io.BytesIO()
         edited_df.to_excel(excel_buffer, index=False, engine="openpyxl")
         excel_buffer.seek(0)
@@ -254,14 +252,12 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
 
     with col_gantt:
         if not df_filtered.empty:
-            # Falls Start/Ende fehlen -> sicherstellen
             if "Start" not in df_filtered.columns or "Ende" not in df_filtered.columns or df_filtered["Start"].isna().all():
                 df_filtered["Start"] = pd.to_datetime(df_filtered["Datum"], errors="coerce") + pd.to_timedelta(6, unit="h")
-                df_filtered["Ende"] = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"].clip(upper=8), unit="h")
+                df_filtered["Ende"]  = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"].clip(upper=8), unit="h")
             fig_gantt = px.timeline(
                 df_filtered, x_start="Start", x_end="Ende", y="Inhalt", color="Qualifikation",
-                title=f"Ablaufplanung {plan_label}",
-                custom_data=["Tag", "Bauraum", "Stunden"]
+                title=f"Ablaufplanung {plan_label}", custom_data=["Tag", "Bauraum", "Stunden"]
             )
             fig_gantt.update_yaxes(autorange="reversed")
             fig_gantt.update_traces(
@@ -300,11 +296,12 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
 # ==============================
 # Tabs (dynamisch)
 # ==============================
-labels = ["Einrichtung"] + [f"Montageplanung {p}" for p in st.session_state["plan_types"]] + ["Personalplanung"]
+labels = ["Einrichtung"] + [f"Montageplanung {p}" for p in st.session_state["plan_types"]] + ["Personalplanung", "Export"]
 tabs = st.tabs(labels)
 tab_setup = tabs[0]
-tab_personal = tabs[-1]
-montage_tabs = tabs[1:-1]  # aligns with plan_types order
+tab_personal = tabs[-2]
+tab_export  = tabs[-1]
+montage_tabs = tabs[1:-2]  # aligns with plan_types order
 
 # --- Einrichtung ---
 with tab_setup:
@@ -324,8 +321,7 @@ with tab_setup:
             if not new_types:
                 st.error("Mindestens ein Plan-Typ ist erforderlich.")
             else:
-                st.session_state["plan_types"] = list(dict.fromkeys(new_types))  # unique, keep order
-                # ensure session keys for new types
+                st.session_state["plan_types"] = list(dict.fromkeys(new_types))
                 for key in st.session_state["plan_types"]:
                     st.session_state.setdefault(f"df_{key}", pd.DataFrame())
                     st.session_state.setdefault(f"map_{key}", {})
@@ -415,7 +411,6 @@ with tab_setup:
                 else:
                     st.warning(f"{plan_key}: Keine verwertbaren Daten nach Verarbeitung.")
 
-    # Render Mapping UI expanders für alle Plan-Typen
     for pt in st.session_state["plan_types"]:
         with st.expander(pt, expanded=(pt == st.session_state["plan_types"][0])):
             mapping_ui(pt, pt)
@@ -436,9 +431,81 @@ for tab_obj, plan_key in zip(montage_tabs, st.session_state["plan_types"]):
             quali_prefix=f"quali_plot_{plan_key}"
         )
 
-# --- Tab: Personalplanung (RELATIVE Ausrichtung + variable Blocklänge + variable Anzahl Wagenkästen) ---
+# --- Hilfsfunktionen für Bewertung / Export ---
+def rating_label(ratio: float) -> str:
+    if ratio < 0.70:
+        return "❌ nicht möglich (<70%)"
+    elif ratio >= 0.90:
+        return "✅ hervorragend (≥90%)"
+    elif ratio >= 0.80:
+        return "✅ gut (≥80%)"
+    else:
+        return "⚠️ ausbaufähig (70–80%)"
+
+def build_pdf_report(pivot_rund: pd.DataFrame, balance_df: pd.DataFrame, overall_text: str) -> bytes:
+    try:
+        from reportlab.lib.pagesizes import A4
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib import colors
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4, title="Personalplanung – Export")
+
+        styles = getSampleStyleSheet()
+        story = []
+        story.append(Paragraph("Personalplanung – Bedarf & Balancing", styles["Title"]))
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(datetime.now().strftime("%d.%m.%Y %H:%M"), styles["Normal"]))
+        story.append(Spacer(1, 18))
+        story.append(Paragraph("<b>Gesamtbewertung</b>: " + overall_text, styles["Heading3"]))
+        story.append(Spacer(1, 12))
+
+        # Tabelle 1: Pivot Rund (Aufgerundete FTE)
+        story.append(Paragraph("Aufgerundete FTE pro Tag & Qualifikation", styles["Heading3"]))
+        data1 = [ ["RelativerTag"] + list(pivot_rund.columns) ]
+        for idx, row in pivot_rund.iterrows():
+            data1.append([idx] + [int(x) for x in row.tolist()])
+        t1 = Table(data1)
+        t1.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+            ("ALIGN",(1,1),(-1,-1),"RIGHT"),
+        ]))
+        story.append(t1)
+        story.append(Spacer(1, 18))
+
+        # Tabelle 2: Balancing
+        story.append(Paragraph("Balancing – Abweichung vom Durchschnitt", styles["Heading3"]))
+        data2 = [list(balance_df.columns)]
+        for _, r in balance_df.iterrows():
+            data2.append([
+                int(r["RelativerTag"]),
+                f'{r["Total FTE"]:.2f}',
+                f'{r["Ø Total FTE"]:.2f}',
+                f'{r["Abweichung"]:.1f} %',
+                r["Bewertung"]
+            ])
+        t2 = Table(data2)
+        t2.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")),
+            ("GRID", (0,0), (-1,-1), 0.25, colors.grey),
+            ("ALIGN",(1,1),(-1,-1),"RIGHT"),
+        ]))
+        story.append(t2)
+
+        story.append(Spacer(1, 18))
+        story.append(Paragraph("Legende: <70% nicht möglich · ≥80% gut · ≥90% hervorragend", styles["Italic"]))
+
+        doc.build(story)
+        buffer.seek(0)
+        return buffer.read()
+    except Exception as e:
+        st.warning(f"PDF-Erstellung nicht verfügbar: {e}")
+        return b""
+
+# --- Tab: Personalplanung ---
 with tab_personal:
-    # Sammle verfügbare Pläne aus Einrichtung
     plan_mapping = {}
     for pt in st.session_state["plan_types"]:
         dfp = st.session_state.get(f"df_{pt}", pd.DataFrame())
@@ -451,7 +518,6 @@ with tab_personal:
 
     st.markdown("### Parameter")
 
-    # Anzahl Wagenkästen variabel
     st.session_state["num_wagen"] = st.number_input(
         "Anzahl Wagenkästen",
         min_value=1, max_value=50, value=st.session_state["num_wagen"], step=1, help="Gilt für Auswahl & Matrix."
@@ -473,7 +539,6 @@ with tab_personal:
     )
 
     st.markdown("### Auswahl des Montageplans pro Wagenkasten")
-
     wagen_count = int(st.session_state["num_wagen"])
     wagenkästen = [f"Wagenkasten {i}" for i in range(1, wagen_count + 1)]
     zugewiesene_pläne = {}
@@ -505,7 +570,7 @@ with tab_personal:
         btn_autofill = st.form_submit_button("Block aus erstem Häkchen füllen")
         btn_berechne = st.form_submit_button("Berechne Personalbedarf")
 
-    # Autofill: exakt Blocklänge ab erstem Haken je Wagen, rest löschen
+    # Autofill
     if btn_autofill:
         for wk_idx, wk in enumerate(wagenkästen):
             selected = [t for t in tag_map_liste if st.session_state.get(f"wk{wk_idx}_tag{t}", False)]
@@ -527,7 +592,7 @@ with tab_personal:
                 if st.session_state.get(f"wk{wk_idx}_tag{tag_map}", False):
                     zuordnung[tag_map].append((wk_idx, wk))
 
-        # Sanity 1: genau 0 oder blocklaenge Häkchen pro Wagen
+        # Sanity 1
         fehler_wagen = []
         belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
         for tag_map, einträge in zuordnung.items():
@@ -541,7 +606,7 @@ with tab_personal:
             st.error(f"Fehler: Die folgenden Wagenkästen haben nicht exakt {int(blocklaenge)} Häkchen (oder null): {fehltext}")
             st.stop()
 
-        # Sanity 2: Kontiguität + Existenz im Plan
+        # Sanity 2
         tag_sets = {name: set(pd.to_numeric(df_src["Tag"], errors="coerce").dropna().astype(int).unique())
                     for name, df_src in plan_mapping.items() if df_src is not None}
 
@@ -605,7 +670,7 @@ with tab_personal:
         with st.expander("Sanity-Check: Zuordnung (Wagenkasten → RelativerTag → Plan-Tag)", expanded=False):
             st.dataframe(df_align.sort_values(["RelativerTag", "Wagenkasten"]))
 
-        # Daten aus Plänen ziehen & relativ taggen
+        # Daten & Aggregationen
         df_parts = []
         for _, row in df_align.iterrows():
             plan_name = row["Plan"]
@@ -619,6 +684,7 @@ with tab_personal:
                 continue
             part["RelativerTag"] = rtag
             part["Wagenkasten"] = wk
+            part["Qualifikation"] = part["Qualifikation"].fillna("Unbekannt")
             df_parts.append(part)
 
         if not df_parts:
@@ -634,33 +700,103 @@ with tab_personal:
                      .sort_index(axis=1))
             st.dataframe(pivot)
 
-        # Plots & Kennzahlen (RELATIVE Tage)
+        # --- Diagramme mit Ø-Linie ---
         st.markdown("### Stundenbedarf pro Relativtag")
         df_plot = df_gesamt.groupby(["RelativerTag", "Qualifikation"])["Stunden"].sum().reset_index()
-        fig = px.bar(df_plot, x="RelativerTag", y="Stunden", color="Qualifikation", barmode="stack",
-                     title="Stundenbedarf pro Relativtag (parallel ausgerichtet)")
-        fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff")
-        st.plotly_chart(fig, use_container_width=True)
+        fig_stunden = bar_with_mean(df_plot, x="RelativerTag", y="Stunden", color="Qualifikation",
+                                    title="Stundenbedarf pro Relativtag (parallel ausgerichtet)")
+        st.plotly_chart(fig_stunden, use_container_width=True)
 
         st.markdown("### FTE-Bedarf pro Relativtag")
         df_fte = df_plot.copy()
         df_fte["FTE"] = df_fte["Stunden"] / fte_basis
-        fig_fte = px.bar(df_fte, x="RelativerTag", y="FTE", color="Qualifikation", barmode="stack",
-                         title="FTE pro Relativtag", labels={"FTE": "FTE"})
-        fig_fte.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff")
+        fig_fte = bar_with_mean(df_fte, x="RelativerTag", y="FTE", color="Qualifikation",
+                                title="FTE pro Relativtag (mit Ø-Linie)")
         st.plotly_chart(fig_fte, use_container_width=True)
 
         st.markdown("### Aufgerundete FTE je Relativtag & Qualifikation")
         df_rund = df_fte.copy()
-        df_rund["Aufgerundete FTE"] = df_rund["FTE"].apply(np.ceil)
+        df_rund["Aufgerundete FTE"] = np.ceil(df_rund["FTE"])
         df_rund = df_rund[["RelativerTag", "Qualifikation", "Aufgerundete FTE"]]
         st.dataframe(df_rund)
 
-        st.markdown("---")
-        st.markdown("### Gesamtstunden & FTE je Qualifikation")
-        gruppe = df_gesamt.groupby("Qualifikation")["Stunden"].sum().reset_index()
-        gruppe["FTE"] = gruppe["Stunden"] / fte_basis
-        st.dataframe(gruppe)
+        # --- Balancing (Abweichung vom Durchschnitt pro Tag) ---
+        day_total_fte = df_fte.groupby("RelativerTag")["FTE"].sum().reset_index(name="Total FTE")
+        mean_total = day_total_fte["Total FTE"].mean() if not day_total_fte.empty else 0.0
+        day_total_fte["Ø Total FTE"] = mean_total
+        day_total_fte["Abweichung"]  = np.where(mean_total > 0, (day_total_fte["Total FTE"] / mean_total) * 100.0, 0.0)
+        day_total_fte["Bewertung"]   = day_total_fte["Abweichung"].apply(rating_label)
+
+        # Gesamtbewertung (Minimum-Tag maßgeblich)
+        min_ratio = day_total_fte["Abweichung"].min() / 100.0 if not day_total_fte.empty else 0.0
+        overall_text = rating_label(min_ratio)
+
+        st.markdown("### Balancing – Abweichung vom Durchschnitt pro Tag")
+        st.dataframe(day_total_fte.rename(columns={
+            "RelativerTag": "RelativerTag",
+            "Total FTE": "Total FTE",
+            "Ø Total FTE": "Ø Total FTE",
+            "Abweichung": "Abweichung (%)",
+            "Bewertung": "Bewertung"
+        }))
+
+        st.info(f"**Gesamtbewertung Balancing:** {overall_text}  \n"
+                "Schwellen: <70 % nicht möglich · ≥80 % gut · ≥90 % hervorragend")
+
+        # --- Ergebnisse für Export merken ---
+        st.session_state["pp_df_gesamt"]   = df_gesamt
+        st.session_state["pp_df_plot"]     = df_plot
+        st.session_state["pp_df_fte"]      = df_fte
+        st.session_state["pp_df_rund"]     = df_rund
+        st.session_state["pp_balance_df"]  = day_total_fte
+        st.session_state["pp_overall_txt"] = overall_text
+
+# --- Tab: Export ---
+with tab_export:
+    st.markdown("## Export")
+
+    if "pp_df_rund" not in st.session_state or "pp_df_fte" not in st.session_state:
+        st.warning("Bitte zuerst im Tab **Personalplanung** auf „Berechne Personalbedarf“ klicken.")
+        st.stop()
+
+    df_rund = st.session_state["pp_df_rund"].copy()
+    df_fte  = st.session_state["pp_df_fte"].copy()
+    balance_df = st.session_state["pp_balance_df"].copy()
+    overall_text = st.session_state["pp_overall_txt"]
+
+    # Pivot: Aufgerundete FTE pro Tag & Qualifikation
+    pivot_rund = df_rund.pivot_table(index="RelativerTag", columns="Qualifikation",
+                                     values="Aufgerundete FTE", aggfunc="sum", fill_value=0).sort_index()
+    st.markdown("### Transformierte Tabelle – Bedarf (aufgerundete FTE)")
+    st.dataframe(pivot_rund)
+
+    # Optional: Gesamt-FTE mit Ø-Linie (nur Info im Export)
+    st.markdown("### Total-FTE pro Tag (mit Ø-Linie)")
+    df_total = df_fte.groupby("RelativerTag", as_index=False)["FTE"].sum()
+    df_total["Kategorie"] = "Total"
+    fig_total = bar_with_mean(df_total.rename(columns={"FTE": "Wert"}),
+                              x="RelativerTag", y="Wert", color="Kategorie",
+                              title="Total-FTE pro Relativtag (mit Ø-Linie)", height=350)
+    st.plotly_chart(fig_total, use_container_width=True)
+
+    # Download: Excel (mehrere Sheets)
+    excel_buf = io.BytesIO()
+    with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
+        pivot_rund.to_excel(writer, sheet_name="FTE_aufgerundet")
+        st.session_state["pp_df_fte"].to_excel(writer, sheet_name="FTE_detail", index=False)
+        st.session_state["pp_df_plot"].to_excel(writer, sheet_name="Stunden_detail", index=False)
+        balance_df.to_excel(writer, sheet_name="Balancing", index=False)
+    excel_buf.seek(0)
+    st.download_button("⬇️ Export als Excel", data=excel_buf,
+                       file_name="Personalplanung_Export.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    # Download: PDF (wenn möglich)
+    pdf_bytes = build_pdf_report(pivot_rund, balance_df.rename(columns={"Abweichung": "Abweichung", "Bewertung": "Bewertung"}), overall_text)
+    if pdf_bytes:
+        st.download_button("⬇️ Export als PDF", data=pdf_bytes, file_name="Personalplanung_Export.pdf", mime="application/pdf")
+    else:
+        st.caption("Für PDF-Export bitte das Python-Paket **reportlab** installieren.")
 
 # --- Footer / Info für .exe-Nutzung ---
 st.markdown("""---""")
