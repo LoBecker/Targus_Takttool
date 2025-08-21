@@ -5,7 +5,8 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
-import plotly.graph_objects as go  # bleibt für evtl. Zusatzlinien
+import plotly.graph_objects as go  # optional für weitere Linien
+import plotly.io as pio            # NEU: stabile Einbettung via to_html
 from datetime import datetime, timedelta
 import base64
 import os
@@ -451,11 +452,11 @@ df_ew2 = ergänze_fehlende_spalten(df_ew2)
 df_mw1 = ergänze_fehlende_spalten(df_mw1)
 df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
-# --- Dynamischer Balkenplot mit Ø-Linie, die auf Legend-Klicks reagiert ---
+# --- Dynamischer Balkenplot mit Ø-Linie (Legend-Klicks) ---
 def bar_with_mean_dynamic(df_plot, x, y, color, title, height=300, key="plot"):
     """
     Gestapelter Balkenplot (px.bar) + dynamische Ø-Linie, die sich bei Legend-Klicks
-    auf Basis der *sichtbaren* Spuren neu berechnet.
+    auf Basis der *sichtbaren* Spuren neu berechnet. Rendering via pio.to_html (inkl. Plotly-JS).
     """
     fig = px.bar(
         df_plot, x=x, y=y, color=color,
@@ -468,91 +469,80 @@ def bar_with_mean_dynamic(df_plot, x, y, color, title, height=300, key="plot"):
         legend_title_text=None
     )
 
-    fig_spec = json.dumps(fig.to_plotly_json())
+    # Plot als HTML mit bekanntem div_id ausgeben (inkl. Plotly-JS inline)
+    div_id = f"plot-{key}"
+    plot_html = pio.to_html(fig, include_plotlyjs=True, full_html=False, div_id=div_id)
 
-    html = f"""
-<div id="plot-{key}" style="width:100%;height:{height+120}px;"></div>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    # zusätzlicher JS-Block zur dynamischen Ø-Linie
+    js = f"""
 <script>
-const fig = {fig_spec};
-const el = document.getElementById("plot-{key}");
-
-function numericSort(a,b){{
-  const na = Number(a), nb = Number(b);
-  const aNum = !isNaN(na), bNum = !isNaN(nb);
-  if (aNum && bNum) return na - nb;
-  return String(a).localeCompare(String(b), 'de', {{numeric:true}});
-}}
-
-function computeMeanFromVisible(gd){{
-  const sums = {{}};
-  const xsSet = new Set();
-  (gd.data || []).forEach(tr => {{
-    if (tr.type !== 'bar') return;
-    const visible = (tr.visible === undefined || tr.visible === true);
-    if (!visible) return;
-    const X = tr.x || [], Y = tr.y || [];
-    for (let i=0;i<X.length;i++) {{
-      const xv = X[i];
-      const yv = Number(Y[i]) || 0;
-      sums[xv] = (sums[xv] || 0) + yv;
-      xsSet.add(xv);
-    }}
-  }});
-  const xs = Array.from(xsSet).sort(numericSort);
-  const vals = xs.map(x => sums[x] || 0);
-  const mean = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
-  return {{ xs, mean }};
-}}
-
-function upsertMean(gd){{
-  const {{ xs, mean }} = computeMeanFromVisible(gd);
-  const lineX = xs;
-  const lineY = xs.map(() => mean);
-
-  // Trace für Ø finden oder anlegen
-  let idx = (gd.data || []).findIndex(t => t.type==='scatter' && t.name==='Ø sichtbar');
-  const meanTrace = {{
-    x: lineX, y: lineY, mode: 'lines', type: 'scatter', name: 'Ø sichtbar',
-    line: {{ dash:'dash', width:2 }}
-  }};
-  if (idx === -1){{
-    Plotly.addTraces(gd, [meanTrace]).then(() => {{
-      annotate(gd, xs, mean);
-    }});
-  }} else {{
-    Plotly.restyle(gd, {{ x:[lineX], y:[lineY] }}, [idx]).then(() => {{
-      annotate(gd, xs, mean);
-    }});
+(function(){{
+  const el = document.getElementById("{div_id}");
+  function numericSort(a,b){{
+    const na = Number(a), nb = Number(b);
+    const aNum = !isNaN(na), bNum = !isNaN(nb);
+    if (aNum && bNum) return na - nb;
+    return String(a).localeCompare(String(b), 'de', {{numeric:true}});
   }}
-}}
-
-function annotate(gd, xs, mean){{
-  const ann = {{
-    x: xs.length ? xs[xs.length-1] : null,
-    y: mean,
-    xanchor:'left',
-    yanchor:'bottom',
-    showarrow:false,
-    text:'Ø '+ (Math.round(mean*10)/10),
-    font: {{ color:'#FFFFFF' }},
-    _isMean:true
-  }};
-  const others = (gd.layout.annotations||[]).filter(a => !a._isMean);
-  Plotly.relayout(gd, {{ annotations: [...others, ann] }});
-}}
-
-Plotly.newPlot(el, fig.data, fig.layout, {{responsive:true}}).then(gd => {{
-  // initiale Ø-Linie
-  upsertMean(gd);
-
-  // bei Legend-Klicks / Restyles neu berechnen
-  el.on('plotly_legendclick', () => {{ setTimeout(()=>upsertMean(el), 0); }});
-  el.on('plotly_restyle',    () => {{ setTimeout(()=>upsertMean(el), 0); }});
-}});
+  function computeMeanFromVisible(gd){{
+    const sums = {{}};
+    const xsSet = new Set();
+    (gd.data || []).forEach(tr => {{
+      if (tr.type !== 'bar') return;
+      const visible = (tr.visible === undefined || tr.visible === true);
+      if (!visible) return;
+      const X = tr.x || [], Y = tr.y || [];
+      for (let i=0;i<X.length;i++) {{
+        const xv = X[i];
+        const yv = Number(Y[i]) || 0;
+        sums[xv] = (sums[xv] || 0) + yv;
+        xsSet.add(xv);
+      }}
+    }});
+    const xs = Array.from(xsSet).sort(numericSort);
+    const vals = xs.map(x => sums[x] || 0);
+    const mean = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+    return {{ xs, mean }};
+  }}
+  function annotate(gd, xs, mean){{
+    const ann = {{
+      x: xs.length ? xs[xs.length-1] : null,
+      y: mean,
+      xanchor:'left', yanchor:'bottom',
+      showarrow:false,
+      text:'Ø '+ (Math.round(mean*10)/10),
+      font: {{ color:'#FFFFFF' }},
+      _isMean:true
+    }};
+    const others = (gd.layout.annotations||[]).filter(a => !a._isMean);
+    Plotly.relayout(gd, {{ annotations: [...others, ann] }});
+  }}
+  function upsertMean(gd){{
+    const {{ xs, mean }} = computeMeanFromVisible(gd);
+    const lineX = xs;
+    const lineY = xs.map(() => mean);
+    let idx = (gd.data || []).findIndex(t => t.type==='scatter' && t.name==='Ø sichtbar');
+    const meanTrace = {{
+      x: lineX, y: lineY, mode: 'lines', type: 'scatter', name: 'Ø sichtbar',
+      line: {{ dash:'dash', width:2 }}
+    }};
+    if (idx === -1){{
+      Plotly.addTraces(gd, [meanTrace]).then(() => annotate(gd, xs, mean));
+    }} else {{
+      Plotly.restyle(gd, {{ x:[lineX], y:[lineY] }}, [idx]).then(() => annotate(gd, xs, mean));
+    }}
+  }}
+  // initial nach kurzem Delay, damit Plot sicher gerendert ist
+  setTimeout(() => {{
+    if (!el || !el.data) return;
+    upsertMean(el);
+    el.on('plotly_legendclick', () => {{ setTimeout(()=>upsertMean(el), 0); }});
+    el.on('plotly_restyle',    () => {{ setTimeout(()=>upsertMean(el), 0); }});
+  }}, 0);
+}})();
 </script>
 """
-    components.html(html, height=height+140)
+    components.html(plot_html + js, height=height+140)
 
 # --- Feiertage definieren ---
 FEIERTAGE = [
@@ -793,8 +783,7 @@ with tab2:
         def gruppiere(df_in, group_field):
             return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-    takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique()) if not df_filtered.empty else []
-    if takte:
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
         titel_map    = [f"Takt {int(t)}" for t in takte]
@@ -921,8 +910,7 @@ with tab3:
         def gruppiere(df_in, group_field):
             return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-    takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique()) if not df_filtered.empty else []
-    if takte:
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
         titel_map    = [f"Takt {int(t)}" for t in takte]
@@ -1049,8 +1037,7 @@ with tab4:
         def gruppiere(df_in, group_field):
             return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-    takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique()) if not df_filtered.empty else []
-    if takte:
+        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
         titel_map    = [f"Takt {int(t)}" for t in takte]
