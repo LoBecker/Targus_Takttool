@@ -1,4 +1,4 @@
-import streamlit as st
+import streamlit as st 
 import hashlib
 import time
 import pandas as pd
@@ -11,9 +11,8 @@ import os
 import sys
 from pathlib import Path
 
-# NEU: nur für Mapping-Tab
+# NEU: für Auto-Vorschlag im Mapping
 import difflib
-import plotly.graph_objects as go
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -127,7 +126,6 @@ if "geladen" not in st.session_state:
     </style>
 """, unsafe_allow_html=True)
 
-# --- Bestehende Verarbeitung (UNVERÄNDERT) ---
 def lade_und_verarbeite_datei(uploaded_file):
     df = pd.DataFrame()
     if uploaded_file is not None:
@@ -186,14 +184,13 @@ def lade_und_verarbeite_datei(uploaded_file):
             st.error(f"Fehler beim Verarbeiten: {e}")
     return df
 
-# --- NEU: Canonicals & State für Mapping-Setup ---
+# ========= NEU: Mapping-Setup =========
 CANONICALS = ["Datum", "Tag", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
 for key in ["EW1", "EW2", "MW1", "MW2"]:
     st.session_state.setdefault(f"df_{key}", pd.DataFrame())
     st.session_state.setdefault(f"map_{key}", {})
     st.session_state.setdefault(f"file_{key}", None)
 
-# --- NEU: Mapping-Vorschläge & Visualisierung ---
 DEFAULT_HINTS = {
     "Inhalt": ["Baugruppe / Arbeitsgang", "Arbeitsgang", "Inhalt"],
     "Soll-Zeit": ["Std.", "Stunden", "Soll-Zeit"],
@@ -205,30 +202,32 @@ DEFAULT_HINTS = {
 }
 
 def propose_for(canon, cols):
+    # 1) Heuristik
     for hint in DEFAULT_HINTS.get(canon, []):
         if hint in cols:
             return hint
+    # 2) Fuzzy
     m = difflib.get_close_matches(canon, cols, n=1, cutoff=0.6)
     return m[0] if m else None
 
-def build_sankey(found_cols, mapping_dict):
-    nodes = found_cols + CANONICALS
-    sources, targets, values = [], [], []
-    for canon, src in mapping_dict.items():
-        if src and src in found_cols:
-            s_idx = found_cols.index(src)
-            t_idx = len(found_cols) + CANONICALS.index(canon)
-            sources.append(s_idx); targets.append(t_idx); values.append(1)
-    fig = go.Figure(data=[go.Sankey(
-        node=dict(pad=12, thickness=14, line=dict(width=0.5), label=nodes),
-        link=dict(source=sources, target=targets, value=values)
-    )])
-    fig.update_layout(height=360, margin=dict(l=10, r=10, t=20, b=10))
-    return fig
+def _col_as_series(df: pd.DataFrame, name: str):
+    """Konvertiert ggf. doppelte Spaltennamen zu einer Series (erste nicht-leere je Zeile)."""
+    if name not in df.columns:
+        return pd.Series([np.nan] * len(df), index=df.index)
+    data = df.loc[:, df.columns == name]
+    if isinstance(data, pd.Series):
+        return data
+    if data.shape[1] == 1:
+        return data.iloc[:, 0]
+    def pick_first_valid(row):
+        for x in row:
+            if pd.notna(x) and str(x).strip() != "":
+                return x
+        return np.nan
+    return data.apply(pick_first_valid, axis=1)
 
-# --- NEU: Verarbeitung mit manuellem Mapping (bestehende Funktion bleibt unberührt) ---
 def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_source: dict):
-    """Wie lade_und_verarbeite_datei, aber mit manuellem Mapping (canonical -> source)."""
+    """Wie deine bestehende Verarbeitung, aber mit manuellem Mapping (Dropdowns). Robust gegen doppelte Spalten."""
     df = pd.DataFrame()
     if uploaded_file is None:
         return df
@@ -239,44 +238,49 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
             df = pd.read_csv(uploaded_file)
         df.columns = [str(c).strip() for c in df.columns]
 
-        # Nur vorhandene Zuordnungen anwenden
+        # Nur gültige Zuordnungen
         valid_map = {canon: src for canon, src in mapping_canonical_to_source.items() if src in df.columns}
-        # Umbenennen source->canonical
+        # source->canonical umbenennen (kann Duplikate erzeugen)
         df = df.rename(columns={src: canon for canon, src in valid_map.items()})
 
-        # Fehlende Canonicals ergänzen
-        for col in CANONICALS:
-            if col not in df.columns:
-                df[col] = np.nan if col in ["Datum","Tag","Takt","Soll-Zeit"] else ""
+        # Canonicals als einzelne Spalten herstellen
+        out = pd.DataFrame(index=df.index)
+        for c in CANONICALS:
+            out[c] = _col_as_series(df, c)
+
+        # Fehlende Canonicals auffüllen
+        for c in CANONICALS:
+            if c not in out.columns:
+                out[c] = np.nan if c in ["Datum","Tag","Takt","Soll-Zeit"] else ""
 
         # Stunden parsen
-        df["Soll-Zeit"] = df["Soll-Zeit"].astype(str).str.replace(r"[^\d,\.]", "", regex=True).str.replace(",", ".", regex=False)
-        df["Stunden"] = pd.to_numeric(df["Soll-Zeit"], errors="coerce")
-        df = df[df["Stunden"].notna()].copy()
+        out["Soll-Zeit"] = out["Soll-Zeit"].astype(str).str.replace(r"[^\d,\.]", "", regex=True).str.replace(",", ".", regex=False)
+        out["Stunden"] = pd.to_numeric(out["Soll-Zeit"], errors="coerce")
+        out = out[out["Stunden"].notna()].copy()
 
         # Takt
-        df["Takt"] = pd.to_numeric(df["Takt"], errors="coerce").fillna(1).astype(int)
+        out["Takt"] = pd.to_numeric(out["Takt"], errors="coerce").fillna(1).astype(int)
 
         # Datum/Tag
-        df["Datum"] = pd.to_datetime(df["Datum"], errors="coerce")
-        if df["Tag"].isna().all():
-            if df["Datum"].notna().any():
-                startdatum_ref = df["Datum"].min()
-                df["Tag"] = (df["Datum"] - startdatum_ref).dt.days + 1
+        out["Datum"] = pd.to_datetime(out["Datum"], errors="coerce")
+        if out["Tag"].isna().all():
+            if out["Datum"].notna().any():
+                startdatum_ref = out["Datum"].min()
+                out["Tag"] = (out["Datum"] - startdatum_ref).dt.days + 1
             else:
-                df["Tag"] = 1
-        df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(1).astype(int)
+                out["Tag"] = 1
+        out["Tag"] = pd.to_numeric(out["Tag"], errors="coerce").fillna(1).astype(int)
 
-        # Zeiten für Gantt (falls Datum vorhanden)
-        if df["Datum"].notna().any():
-            df["Start"] = df["Datum"] + pd.to_timedelta(6, unit="h")
-            df["Ende"] = df["Start"] + pd.to_timedelta(df["Stunden"].clip(upper=8), unit="h")
+        # Start/Ende
+        if out["Datum"].notna().any():
+            out["Start"] = out["Datum"] + pd.to_timedelta(6, unit="h")
+            out["Ende"] = out["Start"] + pd.to_timedelta(out["Stunden"].clip(upper=8), unit="h")
         else:
-            df["Start"] = pd.NaT
-            df["Ende"] = pd.NaT
+            out["Start"] = pd.NaT
+            out["Ende"] = pd.NaT
 
-        df["Tag_Takt"] = df["Tag"].astype(str) + "_T" + df["Takt"].astype(str)
-        return df.reset_index(drop=True)
+        out["Tag_Takt"] = out["Tag"].astype(str) + "_T" + out["Takt"].astype(str)
+        return out.reset_index(drop=True)
 
     except Exception as e:
         st.error(f"Fehler beim Verarbeiten (Mapping): {e}")
@@ -312,9 +316,9 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
-# =========================
-# NEU: Tabs inkl. „Einrichtung“
-# =========================
+# ==============================
+# Tabs inkl. neuem "Einrichtung"
+# ==============================
 st.divider()
 tab_setup, tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Einrichtung",
@@ -325,16 +329,16 @@ tab_setup, tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Personalplanung"
 ])
 
-# --- Tab Einrichtung (Upload & manuelles Mapping) ---
+# --- Tab Einrichtung: Upload + Dropdown-Mapping (ohne Visualisierung) ---
 with tab_setup:
     st.markdown("## Einrichtung – Upload & Spalten-Mapping")
-    st.markdown("Lade je Plan die Datei hoch und ordne die Quellspalten den erwarteten Spalten zu.")
+    st.caption("Lade je Plan die Datei hoch und ordne die Quellspalten den erwarteten Spalten zu. Nutze 'Auto‑Vorschlag' für eine schnelle Vorbelegung.")
 
     def mapping_ui(plan_key: str, title: str):
         st.subheader(title)
         up = st.file_uploader(f"Datei für {plan_key} (CSV/XLSX)", type=["csv", "xlsx"], key=f"uploader_{plan_key}")
 
-        # Datei laden & Vorschau
+        # Datei laden & Spalten erkennen
         if up is not None:
             st.session_state[f"file_{plan_key}"] = up
             try:
@@ -354,11 +358,10 @@ with tab_setup:
         with st.expander("Gefundene Spalten (Quelle)", expanded=False):
             st.write(pd.DataFrame({"Quelle": cols}))
 
-        st.markdown("### Spalten-Mapping (Erwartet → Quelle)")
         current_map = st.session_state.get(f"map_{plan_key}", {})
         options = ["— nicht zuordnen —"] + cols
 
-        c1, c2, _ = st.columns([1,1,3])
+        c1, c2 = st.columns([1,1])
         with c1:
             if st.button("Auto‑Vorschlag", key=f"auto_{plan_key}"):
                 auto_map = {}
@@ -372,7 +375,7 @@ with tab_setup:
                 st.session_state[f"map_{plan_key}"] = {}
                 current_map = {}
 
-        # Auswahl
+        # Dropdowns (Erwartet -> Quelle)
         new_map = {}
         left, right = st.columns(2)
         with left:
@@ -391,39 +394,28 @@ with tab_setup:
                 )
                 new_map[canon] = None if sel == "— nicht zuordnen —" else sel
 
-        # Visualisierung + Checks
+        # Duplicate-Check (jede Quelle nur 1x)
         used = [s for s in new_map.values() if s]
         duplicates = {x for x in used if used.count(x) > 1}
-        missing_required = [c for c in ["Datum","Tag","Soll-Zeit","Qualifikation","Inhalt"] if not new_map.get(c)]
-
-        st.markdown("### Visualisierung der Zuordnung")
-        sankey = build_sankey(cols, new_map)
-        st.plotly_chart(sankey, use_container_width=True)
-
         if duplicates:
             st.error("Konflikt: mehrfach zugeordnet → " + ", ".join(sorted(duplicates)))
-        else:
-            st.success("Keine Duplikate in der Zuordnung.")
-        if missing_required:
-            st.warning("Noch nicht zugeordnet (empfohlen): " + ", ".join(missing_required))
 
-        col_apply, _ = st.columns([1,3])
-        with col_apply:
-            if st.button(f"Übernehmen für {plan_key}", key=f"apply_{plan_key}"):
-                if st.session_state.get(f"file_{plan_key}") is None:
-                    st.error("Bitte zuerst eine Datei hochladen.")
-                elif duplicates:
-                    st.error("Bitte Konflikte lösen (jede Quellspalte nur einmal verwenden).")
+        # Übernehmen
+        if st.button(f"Übernehmen für {plan_key}", key=f"apply_{plan_key}"):
+            if st.session_state.get(f"file_{plan_key}") is None:
+                st.error("Bitte zuerst eine Datei hochladen.")
+            elif duplicates:
+                st.error("Bitte Konflikte lösen (jede Quellspalte nur einmal verwenden).")
+            else:
+                final_map = {canon: src for canon, src in new_map.items() if src}
+                df_proc = lade_und_verarbeite_datei_mit_mapping(st.session_state[f"file_{plan_key}"], final_map)
+                st.session_state[f"map_{plan_key}"] = new_map
+                st.session_state[f"df_{plan_key}"] = df_proc
+                if not df_proc.empty:
+                    st.success(f"✅ {plan_key}: verarbeitet & gespeichert ({len(df_proc)} Zeilen).")
+                    st.rerun()
                 else:
-                    final_map = {canon: src for canon, src in new_map.items() if src}
-                    df_proc = lade_und_verarbeite_datei_mit_mapping(st.session_state[f"file_{plan_key}"], final_map)
-                    st.session_state[f"map_{plan_key}"] = new_map
-                    st.session_state[f"df_{plan_key}"] = df_proc
-                    if not df_proc.empty:
-                        st.success(f"✅ {plan_key}: verarbeitet & gespeichert ({len(df_proc)} Zeilen).")
-                        st.rerun()
-                    else:
-                        st.warning(f"{plan_key}: Keine verwertbaren Daten nach Verarbeitung.")
+                    st.warning(f"{plan_key}: Keine verwertbaren Daten nach Verarbeitung.")
 
     with st.expander("EW1", expanded=True):
         mapping_ui("EW1", "EW1")
@@ -434,20 +426,18 @@ with tab_setup:
     with st.expander("MW2", expanded=False):
         mapping_ui("MW2", "MW2")
 
-    st.info("Nach 'Übernehmen' verwenden die Montage‑Tabs und die Personalplanung automatisch die gemappten Daten.")
+    st.info("Nach 'Übernehmen' verwenden die Montage‑Tabs und die Personalplanung automatisch die gemappten Daten aus diesem Tab.")
 
-# --- Daten aus Einrichtung übernehmen (statt Upload über den Tabs) ---
+# --- Datenverarbeitung (aus Einrichtung) ---
 df_ew1 = st.session_state["df_EW1"]
 df_ew2 = st.session_state["df_EW2"]
 df_mw1 = st.session_state["df_MW1"]
 df_mw2 = st.session_state["df_MW2"]
 
-# --- Sicherheitsnetz für fehlende Spalten (wie gehabt) ---
+# --- Sicherheitsnetz für fehlende Spalten ---
 minimale_spalten = ["Tag (MAP)", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum", "Stunden", "Tag_Takt", "Datum_Start"]
 
 def ergänze_fehlende_spalten(df):
-    if not isinstance(df, pd.DataFrame) or df.empty:
-        return pd.DataFrame(columns=minimale_spalten)
     for spalte in minimale_spalten:
         if spalte not in df.columns:
             df[spalte] = ""
@@ -457,6 +447,10 @@ df_ew1 = ergänze_fehlende_spalten(df_ew1)
 df_ew2 = ergänze_fehlende_spalten(df_ew2)
 df_mw1 = ergänze_fehlende_spalten(df_mw1)
 df_mw2 = ergänze_fehlende_spalten(df_mw2)
+
+# --- Tabs für Planung ---
+st.divider()
+# (Tabs sind bereits oben angelegt)
 
 # --- Feiertage definieren ---
 FEIERTAGE = [
@@ -482,31 +476,27 @@ def arbeitstag_ab(start: datetime.date, tage: int):
 with tab1:
     df = df_ew1
 
-    # --- Zeitraum wählen (Slider über die gesamte Breite) ---
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    
     if df is not None and "Tag" in df.columns:
-        tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
+        tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
     else:
         tag_liste = []
     if not tag_liste:
         st.warning("Keine gültigen Tag-Werte vorhanden.")
         st.stop()
-    tag_min, tag_max = int(min(tag_liste)), int(max(tag_liste))
+    tag_min, tag_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=tag_min,
-        max_value=tag_max,
-        value=(tag_min, tag_max),
+        min_value=int(tag_min),
+        max_value=int(tag_max),
+        value=(int(tag_min), int(tag_max)),
         key="tag_slider_ew1"
     )
 
-    # --- Filter anwenden ---
-    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(tag_min).astype(int)
+    df["Tag"] = df["Tag"].astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
-    # --- Tabelle und Gantt nebeneinander ---
     col_table, col_gantt = st.columns([1.2, 1.8])
 
     with col_table:
@@ -570,15 +560,14 @@ with tab1:
 
     st.divider()
 
-    # --- Balkendiagramme nach Takt mit x = Tag ---
     if not df_filtered.empty:
-        def gruppiere(df_in, field):
-            return df_in.groupby(["Tag", field])["Stunden"].sum().reset_index()
+        def gruppiere(df, field):
+            return df.groupby(["Tag", field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+        takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map = [f"Takt {int(t)}" for t in takte]
+        titel_map = [f"Takt {t}" for t in takte]
 
         col_bauraum, col_quali = st.columns(2)
 
@@ -619,22 +608,22 @@ with tab2:
     df = df_ew2
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    if "Tag" not in df.columns or pd.to_numeric(df["Tag"], errors="coerce").isna().all():
+    if "Tag" not in df.columns or df["Tag"].isnull().all():
         st.warning("Keine gültigen Tag-Werte für EW2 verfügbar.")
         st.stop()
 
-    tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
-    idx_min, idx_max = int(min(tag_liste)), int(max(tag_liste))
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=idx_min,
-        max_value=idx_max,
-        value=(idx_min, idx_max),
+        min_value=int(idx_min),
+        max_value=int(idx_max),
+        value=(int(idx_min), int(idx_max)),
         key="tag_slider_ew2"
     )
 
-    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(idx_min).astype(int)
+    df["Tag"] = df["Tag"].astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -707,13 +696,13 @@ with tab2:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df_in, group_field):
-            return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+        takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {int(t)}" for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
@@ -752,22 +741,22 @@ with tab3:
     df = df_mw1
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    if "Tag" not in df.columns or pd.to_numeric(df["Tag"], errors="coerce").isna().all():
+    if "Tag" not in df.columns or df["Tag"].isnull().all():
         st.warning("Keine gültigen Tag-Werte für MW1 verfügbar.")
         st.stop()
 
-    tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
-    idx_min, idx_max = int(min(tag_liste)), int(max(tag_liste))
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=idx_min,
-        max_value=idx_max,
-        value=(idx_min, idx_max),
+        min_value=int(idx_min),
+        max_value=int(idx_max),
+        value=(int(idx_min), int(idx_max)),
         key="tag_slider_mw1"
     )
 
-    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(idx_min).astype(int)
+    df["Tag"] = df["Tag"].astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -840,13 +829,13 @@ with tab3:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df_in, group_field):
-            return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+        takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {int(t)}" for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
@@ -885,22 +874,22 @@ with tab4:
     df = df_mw2
 
     st.markdown("#### Zeitraum wählen (nach Tag)")
-    if "Tag" not in df.columns or pd.to_numeric(df["Tag"], errors="coerce").isna().all():
+    if "Tag" not in df.columns or df["Tag"].isnull().all():
         st.warning("Keine gültigen Tag-Werte für MW2 verfügbar.")
         st.stop()
 
-    tag_liste = sorted(pd.to_numeric(df["Tag"], errors="coerce").dropna().astype(int).unique())
-    idx_min, idx_max = int(min(tag_liste)), int(max(tag_liste))
+    tag_liste = sorted(df["Tag"].dropna().astype(int).unique())
+    idx_min, idx_max = min(tag_liste), max(tag_liste)
 
     tag_range = st.slider(
         "Tag auswählen",
-        min_value=idx_min,
-        max_value=idx_max,
-        value=(idx_min, idx_max),
+        min_value=int(idx_min),
+        max_value=int(idx_max),
+        value=(int(idx_min), int(idx_max)),
         key="tag_slider_mw2"
     )
 
-    df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(idx_min).astype(int)
+    df["Tag"] = df["Tag"].astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
     col_table, col_gantt = st.columns([1.2, 1.8])
@@ -973,13 +962,13 @@ with tab4:
     st.divider()
 
     if not df_filtered.empty:
-        def gruppiere(df_in, group_field):
-            return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
+        def gruppiere(df, group_field):
+            return df.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+        takte = sorted(df_filtered["Takt"].dropna().unique())
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
-        titel_map    = [f"Takt {int(t)}" for t in takte]
+        titel_map    = [f"Takt {t}" for t in takte]
 
         col_bauraum, col_qualifikation = st.columns(2)
 
@@ -1015,7 +1004,7 @@ with tab4:
 
 # --- Tab 5: Personalplanung ---
 with tab5:
-    # Dynamische Plan-Zuordnung je nach vorhandenen Daten aus Einrichtung
+    # Dynamische Plan-Zuordnung je nach vorhandenen Dateien
     plan_mapping = {}
     if df_ew1 is not None and not df_ew1.empty:
         plan_mapping["EW1"] = df_ew1
@@ -1027,7 +1016,7 @@ with tab5:
         plan_mapping["MW2"] = df_mw2
 
     if not plan_mapping:
-        st.warning("Bitte lade mindestens einen Montageplan im Tab 'Einrichtung' hoch und übernehme das Mapping.")
+        st.warning("Bitte lade mindestens einen Montageplan hoch.")
         st.stop()
 
     planungstage = st.radio("Personalplanung für 5 oder 7 Tage:", [5, 7], horizontal=True, key="planungstage_radio")
@@ -1113,18 +1102,19 @@ with tab5:
             if wk not in zugewiesene_pläne:
                 continue
 
-            belegte_tage = sorted([
+        belegte_tage = {
+            f"Wagenkasten {i+1}": sorted([
                 tag for tag, einträge in zuordnung.items()
-                if any(w == wk for _, w in einträge)
-            ])
+                if any(w == f"Wagenkasten {i+1}" for _, w in einträge)
+            ]) for i in range(12)
+        }
 
-            if not belegte_tage:
+        for wk in wagenkästen:
+            if not belegte_tage[wk]:
                 continue
-
             plan_name = zugewiesene_pläne[wk]
             df_source = plan_mapping[plan_name]
-
-            for i, tag in enumerate(belegte_tage):
+            for i, tag in enumerate(belegte_tage[wk]):
                 df_part = df_source[df_source["Tag"] == tag].copy()
                 if not df_part.empty:
                     df_part["Kalendertag"] = i + 1
