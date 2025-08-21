@@ -5,13 +5,15 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.express as px
-import plotly.graph_objects as go  # NEU: für die Ø-Linie
+import plotly.graph_objects as go  # bleibt für evtl. Zusatzlinien
 from datetime import datetime, timedelta
 import base64
 import os
 import sys
 from pathlib import Path
-import difflib  # NEU: Auto-Vorschlag für Mapping
+import difflib  # Auto-Vorschlag für Mapping
+import json
+import streamlit.components.v1 as components  # für dynamische JS-Interaktion
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -331,7 +333,7 @@ tab_setup, tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # --- Tab Einrichtung: Upload + Dropdown-Mapping (ohne Visualisierung) ---
 with tab_setup:
     st.markdown("## Einrichtung – Upload & Spalten-Mapping")
-    st.caption("Lade je Plan die Datei hoch und ordne die Quellspalten den erwarteten Spalten zu. Nutze 'Auto‑Vorschlag' für eine schnelle Vorbelegung.")
+    st.caption("Lade je Plan die Datei hoch und ordne die Quellspalten den erwarteten Spalten zu. Nutze 'Auto-Vorschlag' für eine schnelle Vorbelegung.")
 
     def mapping_ui(plan_key: str, title: str):
         st.subheader(title)
@@ -362,7 +364,7 @@ with tab_setup:
 
         c1, c2 = st.columns([1,1])
         with c1:
-            if st.button("Auto‑Vorschlag", key=f"auto_{plan_key}"):
+            if st.button("Auto-Vorschlag", key=f"auto_{plan_key}"):
                 auto_map = {}
                 for canon in CANONICALS:
                     guess = current_map.get(canon) or propose_for(canon, cols)
@@ -425,7 +427,7 @@ with tab_setup:
     with st.expander("MW2", expanded=False):
         mapping_ui("MW2", "MW2")
 
-    st.info("Nach 'Übernehmen' verwenden die Montage‑Tabs und die Personalplanung automatisch die gemappten Daten aus diesem Tab.")
+    st.info("Nach 'Übernehmen' verwenden die Montage-Tabs und die Personalplanung automatisch die gemappten Daten aus diesem Tab.")
 
 # --- Daten aus Einrichtung ---
 df_ew1 = st.session_state["df_EW1"]
@@ -449,48 +451,108 @@ df_ew2 = ergänze_fehlende_spalten(df_ew2)
 df_mw1 = ergänze_fehlende_spalten(df_mw1)
 df_mw2 = ergänze_fehlende_spalten(df_mw2)
 
-# --- Helper: Balkenplot mit Ø-Linie ---
-def bar_with_mean(df_plot, x, y, color, title, height=300):
+# --- Dynamischer Balkenplot mit Ø-Linie, die auf Legend-Klicks reagiert ---
+def bar_with_mean_dynamic(df_plot, x, y, color, title, height=300, key="plot"):
     """
-    Gestapelter Balkenplot (px.bar) + horizontale Ø-Linie über alle dargestellten Tage.
-    Ø wird als Mittel der pro-Tag-Summen (y) berechnet.
+    Gestapelter Balkenplot (px.bar) + dynamische Ø-Linie, die sich bei Legend-Klicks
+    auf Basis der *sichtbaren* Spuren neu berechnet.
     """
     fig = px.bar(
-        df_plot,
-        x=x, y=y, color=color,
+        df_plot, x=x, y=y, color=color,
         barmode="stack", title=title, height=height
     )
-    try:
-        mean_val = df_plot.groupby(x)[y].sum().mean()
-        xs = sorted(df_plot[x].dropna().unique())
-        if len(xs) > 0 and pd.notna(mean_val):
-            fig.add_trace(go.Scatter(
-                x=xs,
-                y=[mean_val] * len(xs),
-                mode="lines",
-                name="Ø pro Tag",
-                line=dict(dash="dash", width=2),
-                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
-            ))
-            fig.add_annotation(
-                x=xs[-1],
-                y=mean_val,
-                text=f"Ø {mean_val:.1f}",
-                showarrow=False,
-                xanchor="left",
-                yanchor="bottom",
-                font=dict(color="#FFFFFF")
-            )
-    except Exception:
-        pass
-
     fig.update_layout(
         plot_bgcolor="#1a1a1a",
         paper_bgcolor="#1a1a1a",
         font_color="#ffffff",
         legend_title_text=None
     )
-    return fig
+
+    fig_spec = json.dumps(fig.to_plotly_json())
+
+    html = f"""
+<div id="plot-{key}" style="width:100%;height:{height+120}px;"></div>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+const fig = {fig_spec};
+const el = document.getElementById("plot-{key}");
+
+function numericSort(a,b){{
+  const na = Number(a), nb = Number(b);
+  const aNum = !isNaN(na), bNum = !isNaN(nb);
+  if (aNum && bNum) return na - nb;
+  return String(a).localeCompare(String(b), 'de', {{numeric:true}});
+}}
+
+function computeMeanFromVisible(gd){{
+  const sums = {{}};
+  const xsSet = new Set();
+  (gd.data || []).forEach(tr => {{
+    if (tr.type !== 'bar') return;
+    const visible = (tr.visible === undefined || tr.visible === true);
+    if (!visible) return;
+    const X = tr.x || [], Y = tr.y || [];
+    for (let i=0;i<X.length;i++) {{
+      const xv = X[i];
+      const yv = Number(Y[i]) || 0;
+      sums[xv] = (sums[xv] || 0) + yv;
+      xsSet.add(xv);
+    }}
+  }});
+  const xs = Array.from(xsSet).sort(numericSort);
+  const vals = xs.map(x => sums[x] || 0);
+  const mean = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+  return {{ xs, mean }};
+}}
+
+function upsertMean(gd){{
+  const {{ xs, mean }} = computeMeanFromVisible(gd);
+  const lineX = xs;
+  const lineY = xs.map(() => mean);
+
+  // Trace für Ø finden oder anlegen
+  let idx = (gd.data || []).findIndex(t => t.type==='scatter' && t.name==='Ø sichtbar');
+  const meanTrace = {{
+    x: lineX, y: lineY, mode: 'lines', type: 'scatter', name: 'Ø sichtbar',
+    line: {{ dash:'dash', width:2 }}
+  }};
+  if (idx === -1){{
+    Plotly.addTraces(gd, [meanTrace]).then(() => {{
+      annotate(gd, xs, mean);
+    }});
+  }} else {{
+    Plotly.restyle(gd, {{ x:[lineX], y:[lineY] }}, [idx]).then(() => {{
+      annotate(gd, xs, mean);
+    }});
+  }}
+}}
+
+function annotate(gd, xs, mean){{
+  const ann = {{
+    x: xs.length ? xs[xs.length-1] : null,
+    y: mean,
+    xanchor:'left',
+    yanchor:'bottom',
+    showarrow:false,
+    text:'Ø '+ (Math.round(mean*10)/10),
+    font: {{ color:'#FFFFFF' }},
+    _isMean:true
+  }};
+  const others = (gd.layout.annotations||[]).filter(a => !a._isMean);
+  Plotly.relayout(gd, {{ annotations: [...others, ann] }});
+}}
+
+Plotly.newPlot(el, fig.data, fig.layout, {{responsive:true}}).then(gd => {{
+  // initiale Ø-Linie
+  upsertMean(gd);
+
+  // bei Legend-Klicks / Restyles neu berechnen
+  el.on('plotly_legendclick', () => {{ setTimeout(()=>upsertMean(el), 0); }});
+  el.on('plotly_restyle',    () => {{ setTimeout(()=>upsertMean(el), 0); }});
+}});
+</script>
+"""
+    components.html(html, height=height+140)
 
 # --- Feiertage definieren ---
 FEIERTAGE = [
@@ -614,24 +676,24 @@ with tab1:
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Bauraum",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"ew1_bauraum_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True)
 
         with col_quali:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Qualifikation",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"ew1_quali_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
@@ -731,7 +793,8 @@ with tab2:
         def gruppiere(df_in, group_field):
             return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+    takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique()) if not df_filtered.empty else []
+    if takte:
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
         titel_map    = [f"Takt {int(t)}" for t in takte]
@@ -741,24 +804,24 @@ with tab2:
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Bauraum",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"ew2_bauraum_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_ew2_{i}")
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Qualifikation",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"ew2_quali_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_ew2_{i}")
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
@@ -858,7 +921,8 @@ with tab3:
         def gruppiere(df_in, group_field):
             return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+    takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique()) if not df_filtered.empty else []
+    if takte:
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
         titel_map    = [f"Takt {int(t)}" for t in takte]
@@ -868,24 +932,24 @@ with tab3:
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Bauraum",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"mw1_bauraum_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_mw1_{i}")
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Qualifikation",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"mw1_quali_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_mw1_{i}")
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
@@ -985,7 +1049,8 @@ with tab4:
         def gruppiere(df_in, group_field):
             return df_in.groupby(["Tag", group_field])["Stunden"].sum().reset_index()
 
-        takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique())
+    takte = sorted(pd.to_numeric(df_filtered["Takt"], errors="coerce").dropna().unique()) if not df_filtered.empty else []
+    if takte:
         bauraum_data = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Bauraum") for t in takte]
         quali_data   = [gruppiere(df_filtered[df_filtered["Takt"] == t], "Qualifikation") for t in takte]
         titel_map    = [f"Takt {int(t)}" for t in takte]
@@ -995,24 +1060,24 @@ with tab4:
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Bauraum",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"mw2_bauraum_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True, key=f"bauraum_plot_mw2_{i}")
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                fig = bar_with_mean(
+                bar_with_mean_dynamic(
                     df_plot, x="Tag", y="Stunden",
                     color="Qualifikation",
                     title=titel_map[i],
-                    height=300
+                    height=300,
+                    key=f"mw2_quali_{i}"
                 )
-                st.plotly_chart(fig, use_container_width=True, key=f"quali_plot_mw2_{i}")
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
