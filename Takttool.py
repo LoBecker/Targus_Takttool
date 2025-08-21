@@ -1065,51 +1065,61 @@ with tab5:
             key=f"plan_select_{wk}"
         )
 
-    st.markdown("### Belegung der MAP-Tage über Checkbox-Matrix")
+    # ---------- Checkbox-Matrix im FORM (kein Rerun pro Klick) ----------
+    with st.form("belegung_form", clear_on_submit=False):
+        st.markdown("### Belegung der MAP-Tage über Checkbox-Matrix")
 
-    zuordnung = {tag_map: [] for tag_map in tag_map_liste}
+        header_cols = st.columns([1] + [1] * len(wagenkästen))
+        header_cols[0].markdown("**MAP-Tag**")
+        for i, wk in enumerate(wagenkästen):
+            header_cols[i + 1].markdown(f"**{wk}**")
 
-    header_cols = st.columns([1] + [1] * len(wagenkästen))
-    header_cols[0].markdown("**MAP-Tag**")
-    for i, wk in enumerate(wagenkästen):
-        header_cols[i + 1].markdown(f"**{wk}**")
+        for tag_map in tag_map_liste:
+            cols = st.columns([1] + [1] * len(wagenkästen))
+            cols[0].markdown(f"{tag_map}")
+            for wk_idx, wk in enumerate(wagenkästen):
+                key = f"wk{wk_idx}_tag{tag_map}"
+                current_value = st.session_state.get(key, False)
+                cols[wk_idx + 1].checkbox("", value=current_value, key=key)
 
-    for tag_idx, tag_map in enumerate(tag_map_liste):
-        cols = st.columns([1] + [1] * len(wagenkästen))
-        cols[0].markdown(f"{tag_map}")
+        btn_autofill = st.form_submit_button("Block aus erstem Häkchen füllen")
+        btn_berechne = st.form_submit_button("Berechne Personalbedarf")
 
+    # --- Autofill-Logik: exakt Blocklänge ab erstem Haken je Wagen, rest löschen ---
+    if btn_autofill:
         for wk_idx, wk in enumerate(wagenkästen):
-            key = f"wk{wk_idx}_tag{tag_map}"
-            current_value = st.session_state.get(key, False)
+            # Alle aktiv markierten Tage lesen
+            selected = [t for t in tag_map_liste if st.session_state.get(f"wk{wk_idx}_tag{t}", False)]
+            if not selected:
+                continue
+            start = min(selected)
+            end = min(tag_map_liste[-1], start + int(blocklaenge) - 1)
+            # erst alles False
+            for t in tag_map_liste:
+                st.session_state[f"wk{wk_idx}_tag{t}"] = False
+            # dann Block setzen
+            for t in range(start, end + 1):
+                st.session_state[f"wk{wk_idx}_tag{t}"] = True
+        st.rerun()
 
-            checkbox_clicked = cols[wk_idx + 1].checkbox("", value=current_value, key=key)
+    # --- Berechnung nur wenn Button gedrückt ---
+    if btn_berechne:
+        # zuordnung aus Session-State rekonstruieren
+        zuordnung = {tag_map: [] for tag_map in tag_map_liste}
+        for wk_idx, wk in enumerate(wagenkästen):
+            for tag_map in tag_map_liste:
+                if st.session_state.get(f"wk{wk_idx}_tag{tag_map}", False):
+                    zuordnung[tag_map].append((wk_idx, wk))
 
-            # Komfort: beim ersten Klick fülle Blocklänge Tage nach rechts (inkl. Klick)
-            if checkbox_clicked and not current_value:
-                start = tag_idx
-                end = min(len(tag_map_liste), start + int(blocklaenge))
-                for i_fill in range(start, end):
-                    st.session_state[f"wk{wk_idx}_tag{tag_map_liste[i_fill]}"] = True
-                st.rerun()
-
-            if st.session_state.get(key, False):
-                zuordnung[tag_map].append((wk_idx, wk))
-
-    submitted = st.button("Berechne Personalbedarf")
-
-    if submitted:
         # --- Sanity 1: genau 0 oder blocklaenge Häkchen pro Wagen ---
         fehler_wagen = []
         belegung_pro_wagen = {wk: 0 for wk in wagenkästen}
-
         for tag_map, einträge in zuordnung.items():
             for _, wk in einträge:
                 belegung_pro_wagen[wk] += 1
-
         for wk, count in belegung_pro_wagen.items():
             if count != 0 and count != int(blocklaenge):
                 fehler_wagen.append((wk, count))
-
         if fehler_wagen:
             fehltext = ", ".join([f"{wk} ({anzahl})" for wk, anzahl in fehler_wagen])
             st.error(f"Fehler: Die folgenden Wagenkästen haben nicht exakt {int(blocklaenge)} Häkchen (oder null): {fehltext}")
@@ -1144,9 +1154,7 @@ with tab5:
             tags_sorted = sorted(tags)
             anzahl = len(tags_sorted)
 
-            # Kontiguität: exakt blocklaenge fortlaufend
             ist_kontigu = (anzahl == int(blocklaenge)) and (tags_sorted == list(range(tags_sorted[0], tags_sorted[0] + int(blocklaenge))))
-
             fehlende = sorted([t for t in tags_sorted if t not in tag_sets.get(plan_name, set())])
 
             bereich_txt = f"{tags_sorted[0]}–{tags_sorted[-1]}" if anzahl > 0 else "-"
