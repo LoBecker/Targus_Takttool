@@ -14,7 +14,7 @@ from pathlib import Path
 import difflib
 import io
 from openpyxl import load_workbook
-from openpyxl.utils.cell import range_boundaries
+from openpyxl.utils.cell import range_boundaries, get_column_letter
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -74,7 +74,9 @@ if "num_wagen" not in st.session_state:
 for key in st.session_state["plan_types"]:
     st.session_state.setdefault(f"df_{key}", pd.DataFrame())
     st.session_state.setdefault(f"map_{key}", {})
-    st.session_state.setdefault(f"file_{key}", None)
+    st.session_state.setdefault(f"file_{key}", None)            # UploadedFile
+    st.session_state.setdefault(f"file_bytes_{key}", None)      # bytes (für Write-Back)
+    st.session_state.setdefault(f"file_name_{key}", None)       # Originalname
 
 DEFAULT_HINTS = {
     "Inhalt": ["Baugruppe / Arbeitsgang", "Arbeitsgang", "Inhalt"],
@@ -109,21 +111,26 @@ def _col_as_series(df: pd.DataFrame, name: str):
     return data.apply(pick_first_valid, axis=1)
 
 # --- Helfer: Erste Excel-Tabelle (Als Tabelle formatiert) robust einlesen ---
-def _read_first_excel_table(uploaded_file) -> pd.DataFrame:
+def _read_first_excel_table(uploaded_or_bytes) -> pd.DataFrame:
     """
     Liest bei XLSX den Bereich der ersten 'als Tabelle formatierten' Excel-Tabelle
     und gibt ihn als DataFrame zurück. Erste Zeile im Bereich = Header.
     Wirft ValueError('NO_TABLE'), wenn keine Tabelle existiert.
     """
-    wb = load_workbook(uploaded_file, data_only=True)
+    # uploaded_or_bytes kann ein UploadedFile oder bytes sein
+    if isinstance(uploaded_or_bytes, (bytes, bytearray)):
+        wb = load_workbook(io.BytesIO(uploaded_or_bytes), data_only=True)
+    else:
+        wb = load_workbook(uploaded_or_bytes, data_only=True)
+
     tables = []
     for ws in wb.worksheets:
         for t in ws._tables.values():
-            tables.append((ws, t.ref))  # (Worksheet-Objekt, Range 'A3:F50' etc.)
+            tables.append((ws, t.ref))
     if not tables:
         raise ValueError("NO_TABLE")
 
-    ws, ref_range = tables[0]  # Hinweis: nimmt die erste Tabelle, falls mehrere existieren
+    ws, ref_range = tables[0]  # nimmt die erste Tabelle, falls mehrere existieren
     min_col, min_row, max_col, max_row = range_boundaries(ref_range)
 
     rows = list(ws.iter_rows(min_row=min_row, max_row=max_row,
@@ -154,14 +161,14 @@ def _read_first_excel_table(uploaded_file) -> pd.DataFrame:
     return df
 
 # --- Datei einlesen + Mapping anwenden ---
-def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_source: dict):
+def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_source: dict, file_bytes=None):
     df = pd.DataFrame()
-    if uploaded_file is None:
+    if uploaded_file is None and file_bytes is None:
         return df
     try:
-        if uploaded_file.name.lower().endswith(".xlsx"):
+        if (uploaded_file is not None and uploaded_file.name.lower().endswith(".xlsx")) or (file_bytes is not None):
             try:
-                df = _read_first_excel_table(uploaded_file)
+                df = _read_first_excel_table(file_bytes if file_bytes is not None else uploaded_file)
             except ValueError as ve:
                 if str(ve) == "NO_TABLE":
                     st.error("❌ Bitte den Bereich des MAP als **Tabelle** in Excel formatieren (Einfügen → Tabelle).")
@@ -169,7 +176,12 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
                 else:
                     raise
         else:
-            df = pd.read_csv(uploaded_file)
+            # CSV
+            if uploaded_file is not None:
+                df = pd.read_csv(uploaded_file)
+            else:
+                st.error("CSV benötigt eine UploadedFile-Referenz.")
+                return pd.DataFrame()
 
         df.columns = [str(c).strip() for c in df.columns]
 
@@ -225,6 +237,16 @@ def ensure_columns(df: pd.DataFrame) -> pd.DataFrame:
             df[c] = np.nan if c in ["Datum","Tag","Takt","Soll-Zeit","Stunden"] else ""
     return df
 
+# --- Montage-Ansicht: gewünschte Spaltenreihenfolge ---
+MONTAGE_ORDER_PRIMARY = ["Inhalt", "Tag", "Takt", "Soll-Zeit", "Qualifikation", "Bauraum"]
+
+def order_columns_for_montage(df: pd.DataFrame) -> pd.DataFrame:
+    cols = list(df.columns)
+    rest = [c for c in cols if c not in MONTAGE_ORDER_PRIMARY]
+    rest_sorted = sorted(rest)  # Rest stabil & nachvollziehbar
+    ordered = [c for c in MONTAGE_ORDER_PRIMARY if c in cols] + rest_sorted
+    return df[ordered]
+
 # --- Logo & Titel ---
 def zeige_logo_und_titel():
     logo_path = Path("Logo_Targus.png")
@@ -274,6 +296,68 @@ def bar_with_mean(df_plot, x, y, color, title, height=300):
     fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
     return fig
 
+# --- Excel Write-back: Änderungen in ursprüngliche Tabelle zurückschreiben ---
+def write_back_to_excel_table(original_bytes: bytes, edited_df: pd.DataFrame, output_name: str) -> bytes:
+    """
+    Schreibt edited_df in die erste Excel-Tabelle (Als Tabelle formatiert).
+    - Nur Spalten, die in der Tabelle existieren, werden beschrieben.
+    - Tabellengröße (ref) wird auf die neue Zeilenzahl angepasst.
+    Gibt Bytes des aktualisierten Workbooks zurück.
+    """
+    wb = load_workbook(io.BytesIO(original_bytes))
+    ws = None
+    table_obj = None
+    for sheet in wb.worksheets:
+        if sheet._tables:
+            # erste Tabelle nehmen
+            name, tbl = list(sheet._tables.items())[0]
+            ws = sheet
+            table_obj = tbl
+            break
+    if ws is None or table_obj is None:
+        raise ValueError("Keine Excel-Tabelle gefunden.")
+
+    # Aktuellen Tabellenbereich + Header lesen
+    min_col, min_row, max_col, max_row = range_boundaries(table_obj.ref)
+    header_cells = [ws.cell(row=min_row, column=c).value for c in range(min_col, max_col + 1)]
+    header = [str(h) if h is not None else "" for h in header_cells]
+
+    # edited_df auf die Tabellen-Spalten mappen
+    df_to_write = edited_df.copy()
+    # Reihenfolge in der Datei bleibt die Tabellen-Header-Reihenfolge
+    present_cols = [c for c in header if c in df_to_write.columns]
+    # Fehlende Spalten auffüllen (leer), damit Länge passt
+    for c in header:
+        if c not in df_to_write.columns:
+            df_to_write[c] = ""
+    df_to_write = df_to_write[header]  # exakt Tabellenreihenfolge
+
+    # Tabelle auf neue Größe anpassen (Header + Datenzeilen)
+    new_rows = len(df_to_write)
+    new_max_row = min_row + new_rows  # da min_row ist Headerzeile; Daten endet bei min_row+new_rows
+    new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_max_row}"
+    table_obj.ref = new_ref  # Tabellengröße aktualisieren
+
+    # Header schreiben (zur Sicherheit)
+    for j, colname in enumerate(header, start=min_col):
+        ws.cell(row=min_row, column=j, value=colname)
+
+    # Zellen beschreiben
+    # Erst alten Datenbereich leeren (falls weniger neue Zeilen), um „hängende“ Werte zu vermeiden
+    for r in range(min_row + 1, max_row + 1):  # alter Bereich
+        for c in range(min_col, max_col + 1):
+            ws.cell(row=r, column=c, value=None)
+
+    # Neue Daten schreiben
+    for i, row in enumerate(df_to_write.itertuples(index=False), start=min_row + 1):
+        for j, value in enumerate(row, start=min_col):
+            ws.cell(row=i, column=j, value=value)
+
+    out_buf = io.BytesIO()
+    wb.save(out_buf)
+    out_buf.seek(0)
+    return out_buf.read()
+
 # --- Montage-Tab Renderer ---
 def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, editor_key: str, gantt_key: str, bauraum_prefix: str, quali_prefix: str):
     df = ensure_columns(df)
@@ -288,11 +372,16 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
     df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(tag_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
-    col_table, col_gantt = st.columns([1.2, 1.8])
+    # gewünschte Spaltenreihenfolge in der Ansicht
+    if not df_filtered.empty:
+        df_filtered = order_columns_for_montage(df_filtered)
+
+    col_table, col_gantt = st.columns([1.25, 1.75])
     with col_table:
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         edited_df = st.data_editor(df_filtered, use_container_width=True, num_rows="dynamic", hide_index=True, key=editor_key)
 
+        # 1) Flache Excel-Kopie (wie bisher)
         excel_buffer = io.BytesIO()
         edited_df.to_excel(excel_buffer, index=False, engine="openpyxl")
         excel_buffer.seek(0)
@@ -303,8 +392,26 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
+        # 2) In ursprüngliche Excel-Tabelle zurückschreiben (wenn XLSX vorhanden)
+        orig_bytes = st.session_state.get(f"file_bytes_{plan_label}")
+        orig_name  = st.session_state.get(f"file_name_{plan_label}") or f"{plan_label}.xlsx"
+        if orig_bytes:
+            try:
+                updated_bytes = write_back_to_excel_table(orig_bytes, edited_df, orig_name)
+                st.download_button(
+                    label="⬇️ In ursprüngliche Excel-Tabelle zurückschreiben",
+                    data=updated_bytes,
+                    file_name=(Path(orig_name).stem + "_updated.xlsx"),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Schreibt in die erste 'Als Tabelle formatiert'-Tabelle der Originaldatei."
+                )
+            except Exception as wbe:
+                st.warning(f"Zurückschreiben in die Tabelle nicht möglich: {wbe}")
+
         if not edited_df.equals(df_filtered):
-            df.update(edited_df)
+            # Änderungen in Session übernehmen (Quelle df)
+            # Achtung: df_filtered ist ein Slice -> gezielt zurückschreiben:
+            df.update(edited_df)  # gleiche Indizes/Spalten notwendig (hier gegeben)
             st.session_state[f"df_{plan_label}"] = df.copy()
             st.success("Änderungen gespeichert.")
 
@@ -312,6 +419,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
         if not df_filtered.empty:
             if "Start" not in df_filtered.columns or "Ende" not in df_filtered.columns or df_filtered["Start"].isna().all():
                 df_filtered["Start"] = pd.to_datetime(df_filtered["Datum"], errors="coerce") + pd.to_timedelta(6, unit="h")
+                df_filtered["Ende"]  = df_filtered["Start"] + pd.to_datetime(pd.Series(["1970-01-01"]))  # dummy init
                 df_filtered["Ende"]  = df_filtered["Start"] + pd.to_timedelta(df_filtered["Stunden"].clip(upper=8), unit="h")
             fig_gantt = px.timeline(
                 df_filtered, x_start="Start", x_end="Ende", y="Inhalt", color="Qualifikation",
@@ -363,10 +471,10 @@ montage_tabs = tabs[1:-2]  # aligns with plan_types order
 
 # --- Einrichtung ---
 with tab_setup:
-    
+    st.markdown("## Einrichtung – Upload & Spalten-Mapping")
 
     # Plan-Typen anpassen (dynamisch)
-    
+    st.markdown("### Plan-Typen")
     types_csv = st.text_input(
         "Plan-Typen (kommagetrennt):",
         value=", ".join(st.session_state["plan_types"]),
@@ -384,6 +492,8 @@ with tab_setup:
                     st.session_state.setdefault(f"df_{key}", pd.DataFrame())
                     st.session_state.setdefault(f"map_{key}", {})
                     st.session_state.setdefault(f"file_{key}", None)
+                    st.session_state.setdefault(f"file_bytes_{key}", None)
+                    st.session_state.setdefault(f"file_name_{key}", None)
                 st.success("Plan-Typen aktualisiert. Seite wird neu aufgebaut…")
                 st.rerun()
 
@@ -396,11 +506,20 @@ with tab_setup:
 
         if up is not None:
             st.session_state[f"file_{plan_key}"] = up
+            st.session_state[f"file_name_{plan_key}"] = up.name
+            # Bytes puffern, damit wir später sicher in dieselbe Datei-Struktur zurückschreiben können
+            try:
+                st.session_state[f"file_bytes_{plan_key}"] = up.getvalue()
+            except Exception:
+                # Fallback: lesen und zurückspulen
+                raw = up.read()
+                st.session_state[f"file_bytes_{plan_key}"] = raw
+
             try:
                 if up.name.lower().endswith(".xlsx"):
-                    df_prev = _read_first_excel_table(up)   # nur zum Lesen der Spaltennamen
+                    df_prev = _read_first_excel_table(st.session_state[f"file_bytes_{plan_key}"])   # nur Header
                 else:
-                    df_prev = pd.read_csv(up, nrows=1)      # nur Header nötig
+                    df_prev = pd.read_csv(io.BytesIO(st.session_state[f"file_bytes_{plan_key}"]), nrows=1)
                 df_prev.columns = [str(c).strip() for c in df_prev.columns]
             except ValueError as ve:
                 if str(ve) == "NO_TABLE":
@@ -467,7 +586,11 @@ with tab_setup:
                 st.error("Bitte Konflikte lösen (jede Quellspalte nur einmal verwenden).")
             else:
                 final_map = {canon: src for canon, src in new_map.items() if src}
-                df_proc = lade_und_verarbeite_datei_mit_mapping(st.session_state[f"file_{plan_key}"], final_map)
+                df_proc = lade_und_verarbeite_datei_mit_mapping(
+                    st.session_state[f"file_{plan_key}"],
+                    final_map,
+                    file_bytes=st.session_state.get(f"file_bytes_{plan_key}")
+                )
                 st.session_state[f"map_{plan_key}"] = new_map
                 st.session_state[f"df_{plan_key}"] = df_proc
                 if not df_proc.empty:
