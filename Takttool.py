@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 import difflib
 import io
+from openpyxl import load_workbook  # NEU: für Tabellenbereich
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -107,15 +108,41 @@ def _col_as_series(df: pd.DataFrame, name: str):
         return np.nan
     return data.apply(pick_first_valid, axis=1)
 
+# --- NEU: erste Excel-"Tabelle" (Als Tabelle formatiert) lesen ---
+def _read_first_excel_table(uploaded_file) -> pd.DataFrame:
+    """Liest bei XLSX den Bereich der ersten 'als Tabelle formatierten' Excel-Tabelle.
+    Wirft ValueError('NO_TABLE'), wenn keine Tabelle existiert."""
+    wb = load_workbook(uploaded_file, data_only=True)
+    tables = []
+    for ws in wb.worksheets:
+        for t in ws._tables.values():   # dict name->Table; t.ref = 'A1:F50'
+            tables.append((ws.title, t.ref))
+    if not tables:
+        raise ValueError("NO_TABLE")
+    sheet_name, ref_range = tables[0]
+    # pandas akzeptiert A1:F50 in usecols
+    df = pd.read_excel(uploaded_file, sheet_name=sheet_name, usecols=ref_range, engine="openpyxl")
+    return df
+
 def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_source: dict):
     df = pd.DataFrame()
     if uploaded_file is None:
         return df
     try:
+        # --- Geändert: XLSX → ausschließlich Tabellenbereich lesen ---
         if uploaded_file.name.lower().endswith(".xlsx"):
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
+            try:
+                df = _read_first_excel_table(uploaded_file)
+            except ValueError as ve:
+                if str(ve) == "NO_TABLE":
+                    st.error("❌ Bitte den Bereich des MAP als **Tabelle** in Excel formatieren (Einfügen → Tabelle).")
+                    return pd.DataFrame()
+                else:
+                    raise
         else:
             df = pd.read_csv(uploaded_file)
+
+        # --- ab hier bleibt deine bisherige Logik ---
         df.columns = [str(c).strip() for c in df.columns]
 
         valid_map = {canon: src for canon, src in mapping_canonical_to_source.items() if src in df.columns}
@@ -129,7 +156,9 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
             if c not in out.columns:
                 out[c] = np.nan if c in ["Datum", "Tag", "Takt", "Soll-Zeit"] else ""
 
-        out["Soll-Zeit"] = out["Soll-Zeit"].astype(str).str.replace(r"[^\d,\.]", "", regex=True).str.replace(",", ".", regex=False)
+        out["Soll-Zeit"] = (out["Soll-Zeit"].astype(str)
+                            .str.replace(r"[^\d,\.]", "", regex=True)
+                            .str.replace(",", ".", regex=False))
         out["Stunden"] = pd.to_numeric(out["Soll-Zeit"], errors="coerce")
         out = out[out["Stunden"].notna()].copy()
 
@@ -339,8 +368,18 @@ with tab_setup:
         if up is not None:
             st.session_state[f"file_{plan_key}"] = up
             try:
-                df_prev = pd.read_excel(up, engine="openpyxl") if up.name.lower().endswith(".xlsx") else pd.read_csv(up)
+                if up.name.lower().endswith(".xlsx"):
+                    df_prev = _read_first_excel_table(up)  # NEU: Vorschau nutzt Tabellenbereich
+                else:
+                    df_prev = pd.read_csv(up)
                 df_prev.columns = [str(c).strip() for c in df_prev.columns]
+            except ValueError as ve:
+                if str(ve) == "NO_TABLE":
+                    st.error("❌ Bitte den Bereich des MAP als **Tabelle** in Excel formatieren (Einfügen → Tabelle).")
+                    df_prev = pd.DataFrame()
+                else:
+                    st.error(f"Vorschau fehlgeschlagen: {ve}")
+                    df_prev = pd.DataFrame()
             except Exception as e:
                 st.error(f"Vorschau fehlgeschlagen: {e}")
                 df_prev = pd.DataFrame()
