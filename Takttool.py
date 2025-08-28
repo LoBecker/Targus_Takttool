@@ -13,7 +13,8 @@ import sys
 from pathlib import Path
 import difflib
 import io
-from openpyxl import load_workbook  # NEU: für Tabellenbereich
+from openpyxl import load_workbook
+from openpyxl.utils.cell import range_boundaries
 
 st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout="wide")
 
@@ -61,7 +62,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Canonicals & Session Defaults ---
+# --- Canonicals & Defaults ---
 CANONICALS = ["Datum", "Tag", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
 DEFAULT_PLAN_TYPES = ["EW1", "EW2", "MW1", "MW2"]
 
@@ -70,7 +71,6 @@ if "plan_types" not in st.session_state:
 if "num_wagen" not in st.session_state:
     st.session_state["num_wagen"] = 12
 
-# ensure per-plan session objects exist
 for key in st.session_state["plan_types"]:
     st.session_state.setdefault(f"df_{key}", pd.DataFrame())
     st.session_state.setdefault(f"map_{key}", {})
@@ -80,7 +80,7 @@ DEFAULT_HINTS = {
     "Inhalt": ["Baugruppe / Arbeitsgang", "Arbeitsgang", "Inhalt"],
     "Soll-Zeit": ["Std.", "Stunden", "Soll-Zeit"],
     "Bauraum": ["Ebene", "Bauraum"],
-    "Datum": ["Datum", "Datum \nStart (Berechnet)", "Startdatum"],
+    "Datum": ["Datum", "Datum \\nStart (Berechnet)", "Startdatum"],
     "Qualifikation": ["Qualifikation", "Skill"],
     "Tag": ["Tag", "MAP-Tag", "Tag (MAP)"],
     "Takt": ["Takt", "Station", "Taktnummer"]
@@ -108,28 +108,57 @@ def _col_as_series(df: pd.DataFrame, name: str):
         return np.nan
     return data.apply(pick_first_valid, axis=1)
 
-# --- NEU: erste Excel-"Tabelle" (Als Tabelle formatiert) lesen ---
+# --- Helfer: Erste Excel-Tabelle (Als Tabelle formatiert) robust einlesen ---
 def _read_first_excel_table(uploaded_file) -> pd.DataFrame:
-    """Liest bei XLSX den Bereich der ersten 'als Tabelle formatierten' Excel-Tabelle.
-    Wirft ValueError('NO_TABLE'), wenn keine Tabelle existiert."""
+    """
+    Liest bei XLSX den Bereich der ersten 'als Tabelle formatierten' Excel-Tabelle
+    und gibt ihn als DataFrame zurück. Erste Zeile im Bereich = Header.
+    Wirft ValueError('NO_TABLE'), wenn keine Tabelle existiert.
+    """
     wb = load_workbook(uploaded_file, data_only=True)
     tables = []
     for ws in wb.worksheets:
-        for t in ws._tables.values():   # dict name->Table; t.ref = 'A1:F50'
-            tables.append((ws.title, t.ref))
+        for t in ws._tables.values():
+            tables.append((ws, t.ref))  # (Worksheet-Objekt, Range 'A3:F50' etc.)
     if not tables:
         raise ValueError("NO_TABLE")
-    sheet_name, ref_range = tables[0]
-    # pandas akzeptiert A1:F50 in usecols
-    df = pd.read_excel(uploaded_file, sheet_name=sheet_name, usecols=ref_range, engine="openpyxl")
+
+    ws, ref_range = tables[0]  # Hinweis: nimmt die erste Tabelle, falls mehrere existieren
+    min_col, min_row, max_col, max_row = range_boundaries(ref_range)
+
+    rows = list(ws.iter_rows(min_row=min_row, max_row=max_row,
+                             min_col=min_col, max_col=max_col,
+                             values_only=True))
+    if not rows:
+        return pd.DataFrame()
+
+    header = [str(c).strip() if c is not None else "" for c in rows[0]]
+    data = rows[1:]
+
+    # doppelte/leere Header robust machen
+    def _make_unique(cols):
+        seen = {}
+        out = []
+        for c in cols:
+            c0 = c if c else "Spalte"
+            if c0 not in seen:
+                seen[c0] = 0
+                out.append(c0)
+            else:
+                seen[c0] += 1
+                out.append(f"{c0}_{seen[c0]}")
+        return out
+
+    header = _make_unique(header)
+    df = pd.DataFrame(data, columns=header)
     return df
 
+# --- Datei einlesen + Mapping anwenden ---
 def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_source: dict):
     df = pd.DataFrame()
     if uploaded_file is None:
         return df
     try:
-        # --- Geändert: XLSX → ausschließlich Tabellenbereich lesen ---
         if uploaded_file.name.lower().endswith(".xlsx"):
             try:
                 df = _read_first_excel_table(uploaded_file)
@@ -142,7 +171,6 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
         else:
             df = pd.read_csv(uploaded_file)
 
-        # --- ab hier bleibt deine bisherige Logik ---
         df.columns = [str(c).strip() for c in df.columns]
 
         valid_map = {canon: src for canon, src in mapping_canonical_to_source.items() if src in df.columns}
@@ -182,6 +210,7 @@ def lade_und_verarbeite_datei_mit_mapping(uploaded_file, mapping_canonical_to_so
 
         out["Tag_Takt"] = out["Tag"].astype(str) + "_T" + out["Takt"].astype(str)
         return out.reset_index(drop=True)
+
     except Exception as e:
         st.error(f"Fehler beim Verarbeiten (Mapping): {e}")
         return pd.DataFrame()
@@ -334,10 +363,10 @@ montage_tabs = tabs[1:-2]  # aligns with plan_types order
 
 # --- Einrichtung ---
 with tab_setup:
-    st.markdown("## Einrichtung – Upload & Spalten-Mapping")
+    
 
     # Plan-Typen anpassen (dynamisch)
-    st.markdown("### Plan-Typen")
+    
     types_csv = st.text_input(
         "Plan-Typen (kommagetrennt):",
         value=", ".join(st.session_state["plan_types"]),
@@ -369,9 +398,9 @@ with tab_setup:
             st.session_state[f"file_{plan_key}"] = up
             try:
                 if up.name.lower().endswith(".xlsx"):
-                    df_prev = _read_first_excel_table(up)  # NEU: Vorschau nutzt Tabellenbereich
+                    df_prev = _read_first_excel_table(up)   # nur zum Lesen der Spaltennamen
                 else:
-                    df_prev = pd.read_csv(up)
+                    df_prev = pd.read_csv(up, nrows=1)      # nur Header nötig
                 df_prev.columns = [str(c).strip() for c in df_prev.columns]
             except ValueError as ve:
                 if str(ve) == "NO_TABLE":
@@ -390,9 +419,6 @@ with tab_setup:
         if not cols:
             st.info("Bitte eine Datei hochladen, um Spalten zu erkennen.")
             return
-
-        with st.expander("Gefundene Spalten (Quelle)", expanded=False):
-            st.write(pd.DataFrame({"Quelle": cols}))
 
         current_map = st.session_state.get(f"map_{plan_key}", {})
         options = ["— nicht zuordnen —"] + cols
