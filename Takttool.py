@@ -471,10 +471,10 @@ montage_tabs = tabs[1:-2]  # aligns with plan_types order
 
 # --- Einrichtung ---
 with tab_setup:
-    st.markdown("## Einrichtung – Upload & Spalten-Mapping")
+   
 
     # Plan-Typen anpassen (dynamisch)
-    st.markdown("### Plan-Typen")
+    
     types_csv = st.text_input(
         "Plan-Typen (kommagetrennt):",
         value=", ".join(st.session_state["plan_types"]),
@@ -1005,3 +1005,4 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
