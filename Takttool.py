@@ -458,9 +458,51 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
                 st.plotly_chart(fig, use_container_width=True, key=f"{bauraum_prefix}_{i}")
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
+
+            # --------- Normalisierung + feste Farben (ohne Grundfunktionen zu ändern) ----------
+            quali_normalize = {
+                "elektriker": "Elektriker",
+                "elektrik": "Elektriker",
+                "mechaniker": "Mechaniker",
+                "mechaiker": "Mechaniker",
+                "mechaikr": "Mechaniker",
+                "mech": "Mechaniker",
+            }
+            fixed_colors = {"Elektriker": "#EF4444", "Mechaniker": "#9CA3AF"}  # Rot, Grau
+            fallback_palette = list(px.colors.qualitative.Bold)
+
             for i, df_plot in enumerate(quali_data):
+                if df_plot.empty:
+                    continue
+
+                # Qualifikation normalisieren
+                _q = df_plot["Qualifikation"].astype(str).str.strip()
+                _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
+                df_plot = df_plot.copy()
+                df_plot["Qualifikation"] = _q_norm  # gleiche Spalte beibehalten
+
+                # Plot wie gehabt (Grundfunktion bleibt unberührt)
                 fig = bar_with_mean(df_plot, x="Tag", y="Stunden", color="Qualifikation", title=titel_map[i], height=300)
+
+                # Spuren neu einfärben: Elektriker rot, Mechaniker grau, Rest kontrastreich
+                used = set()
+                palette_idx = 0
+                for tr in fig.data:
+                    name = getattr(tr, "name", None)
+                    if name in fixed_colors:
+                        tr.update(marker=dict(color=fixed_colors[name]))
+                        used.add(fixed_colors[name])
+                    else:
+                        # nächste kontrastreiche Farbe wählen (ohne bislang verwendete festen Farben)
+                        while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
+                            palette_idx += 1
+                        color_choice = fallback_palette[palette_idx % len(fallback_palette)]
+                        tr.update(marker=dict(color=color_choice))
+                        used.add(color_choice)
+                        palette_idx += 1
+
                 st.plotly_chart(fig, use_container_width=True, key=f"{quali_prefix}_{i}")
+            # ------------------------------------------------------------------------
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
@@ -476,10 +518,8 @@ montage_tabs = tabs[1:-2]  # aligns with plan_types order
 
 # --- Einrichtung ---
 with tab_setup:
-   
 
     # Plan-Typen anpassen (dynamisch)
-    
     types_csv = st.text_input(
         "Plan-Typen (kommagetrennt):",
         value=", ".join(st.session_state["plan_types"]),
@@ -896,15 +936,64 @@ with tab_personal:
         # --- Diagramme mit Ø-Linie ---
         st.markdown("### Stundenbedarf pro Relativtag")
         df_plot = df_gesamt.groupby(["RelativerTag", "Qualifikation"])["Stunden"].sum().reset_index()
+
+        # Normalisierung + Färben (wie im Montage-Tab)
+        quali_normalize = {
+            "elektriker": "Elektriker",
+            "elektrik": "Elektriker",
+            "mechaniker": "Mechaniker",
+            "mechaiker": "Mechaniker",
+            "mechaikr": "Mechaniker",
+            "mech": "Mechaniker",
+        }
+        fixed_colors = {"Elektriker": "#EF4444", "Mechaniker": "#9CA3AF"}
+        fallback_palette = list(px.colors.qualitative.Bold)
+
+        _q = df_plot["Qualifikation"].astype(str).str.strip()
+        _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
+        df_plot = df_plot.copy()
+        df_plot["Qualifikation"] = _q_norm
+
         fig_stunden = bar_with_mean(df_plot, x="RelativerTag", y="Stunden", color="Qualifikation",
                                     title="Stundenbedarf pro Relativtag (parallel ausgerichtet)")
+        # Farben anwenden
+        used = set(); palette_idx = 0
+        for tr in fig_stunden.data:
+            name = getattr(tr, "name", None)
+            if name in fixed_colors:
+                tr.update(marker=dict(color=fixed_colors[name]))
+                used.add(fixed_colors[name])
+            else:
+                while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
+                    palette_idx += 1
+                color_choice = fallback_palette[palette_idx % len(fallback_palette)]
+                tr.update(marker=dict(color=color_choice))
+                used.add(color_choice)
+                palette_idx += 1
+
         st.plotly_chart(fig_stunden, use_container_width=True)
 
         st.markdown("### FTE-Bedarf pro Relativtag")
         df_fte = df_plot.copy()
         df_fte["FTE"] = df_fte["Stunden"] / fte_basis
+
         fig_fte = bar_with_mean(df_fte, x="RelativerTag", y="FTE", color="Qualifikation",
                                 title="FTE pro Relativtag (mit Ø-Linie)")
+
+        used = set(); palette_idx = 0
+        for tr in fig_fte.data:
+            name = getattr(tr, "name", None)
+            if name in fixed_colors:
+                tr.update(marker=dict(color=fixed_colors[name]))
+                used.add(fixed_colors[name])
+            else:
+                while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
+                    palette_idx += 1
+                color_choice = fallback_palette[palette_idx % len(fallback_palette)]
+                tr.update(marker=dict(color=color_choice))
+                used.add(color_choice)
+                palette_idx += 1
+
         st.plotly_chart(fig_fte, use_container_width=True)
 
         st.markdown("### Aufgerundete FTE je Relativtag & Qualifikation")
@@ -1010,5 +1099,3 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
-
-
