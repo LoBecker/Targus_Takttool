@@ -20,10 +20,14 @@ st.set_page_config(page_title="Takttool – Montage- & Personalplanung", layout=
 
 # --- Passwortschutz ---
 def check_password():
-    def hash_password(password):
+    def hash_password(password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
 
-    correct_password = hash_password("Targus2025!")
+    # mehrere gültige Passwörter
+    valid_hashes = {
+        hash_password("Targus2025!"),
+        hash_password("Stadler2025!"),
+    }
 
     if "auth_ok" not in st.session_state:
         st.session_state["auth_ok"] = False
@@ -34,9 +38,10 @@ def check_password():
             password = st.text_input("Bitte Passwort eingeben", type="password")
             submitted = st.form_submit_button("Einloggen")
             if submitted:
-                if hash_password(password) == correct_password:
+                if hash_password(password) in valid_hashes:
                     st.session_state["auth_ok"] = True
-                    st.success("✅ Bitte erneut einloggen")
+                    st.success("✅ Login erfolgreich – lade App…")
+                    st.rerun()  # sauberer als nachfolgendes st.stop()
                 else:
                     st.error("❌ Falsches Passwort")
                     st.stop()
@@ -1005,4 +1010,5 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
 
