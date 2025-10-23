@@ -468,7 +468,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
                 "mechaikr": "Mechaniker",
                 "mech": "Mechaniker",
             }
-            fixed_colors = {"Elektriker": "#EF4444", "Mechaniker": "#9CA3AF"}  # Rot, Grau
+            fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}  # Rot, Grau
             fallback_palette = list(px.colors.qualitative.Bold)
 
             for i, df_plot in enumerate(quali_data):
@@ -1099,3 +1099,4 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
