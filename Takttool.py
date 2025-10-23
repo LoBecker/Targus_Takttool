@@ -67,6 +67,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ---- UI-Farben für Multiselect-Filter (Chips) ----
+# Grau: "#4B5563"  ·  Blau: "#2563EB"
+MULTISELECT_CHIP_COLOR = "#4B5563"   # auf Blau wechseln: "#2563EB"
+st.markdown(f"""
+<style>
+.stMultiSelect [data-baseweb="tag"] {{
+    background-color: {MULTISELECT_CHIP_COLOR} !important;
+    color: #ffffff !important;
+    border: none !important;
+}}
+.stMultiSelect [data-baseweb="select"] > div {{
+    border-color: #4B5563 !important;
+    background-color: #1f1f1f !important;
+}}
+.stMultiSelect [data-baseweb="tag"] svg {{ fill: #ffffff !important; }}
+.stMultiSelect input, .stMultiSelect div[role="combobox"] * {{ color: #ffffff !important; }}
+</style>
+""", unsafe_allow_html=True)
+
 # --- Canonicals & Defaults ---
 CANONICALS = ["Datum", "Tag", "Takt", "Soll-Zeit", "Qualifikation", "Inhalt", "Bauraum"]
 DEFAULT_PLAN_TYPES = ["EW1", "EW2", "MW1", "MW2"]
@@ -277,7 +296,7 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
-# --- Interaktives Balkendiagramm mit Ø-Linie (aus Auswahl berechnet) ---
+# --- Interaktiver Plot Helper mit dynamischer Ø-Linie ---
 def bar_with_mean_interactive(
     df_plot: pd.DataFrame,
     x: str,
@@ -285,20 +304,54 @@ def bar_with_mean_interactive(
     color: str,
     title: str,
     height: int = 300,
-    key: str = None,
-    fixed_colors: dict = None,
-    normalize_quali: bool = True,
+    key: str | None = None,
+    normalize_quali: bool = False,
 ):
     """
-    Interaktives gestapeltes Balkendiagramm (Plotly) mit Ø-Linie, die auf Basis
-    der per Multiselect gewählten Kategorien berechnet wird.
-    Vermeidet Duplicate Keys durch getrennte Suffixe.
+    Erstellt ein gestapeltes Balkendiagramm mit dynamischer Ø-Linie:
+    - Links erscheinen 2 Filter (Multiselect): Kategorien (Legendeneinträge) & x-Bucket.
+    - Die Ø-Linie basiert **immer** auf dem aktuell gefilterten Datenumfang.
+    - Feste Farben: Elektriker = Signalrot #a52019, Mechaniker = Grau #9CA3AF.
+    - Andere Kategorien bekommen eine kontrastreiche Fallback-Palette.
     """
-    df_use = df_plot.copy()
+    if df_plot is None or df_plot.empty:
+        st.info("Keine Daten für Diagramm.")
+        return
 
-    # Qualifikation normalisieren (damit Farben stabil bleiben)
-    if normalize_quali and color == "Qualifikation":
-        quali_normalize = {
+    col_filters, col_fig = st.columns([0.42, 1.58])
+
+    with col_filters:
+        # Werte der Legende/Kategorie:
+        categories = sorted(df_plot[color].dropna().astype(str).unique())
+        sel_cats = st.multiselect(
+            "Kategorien auswählen",
+            options=categories,
+            default=categories,
+            key=(key + "_cats") if key else None,
+        )
+
+        # X-Achse Auswahl (z. B. bestimmte Tage)
+        x_values = sorted(pd.Series(df_plot[x]).dropna().unique().tolist())
+        if len(x_values) > 200:
+            # bei sehr langen Achsen nur Anzeige, kein Filter
+            sel_x = x_values
+        else:
+            sel_x = st.multiselect(
+                f"{x} auswählen",
+                options=x_values,
+                default=x_values,
+                key=(key + "_xvals") if key else None,
+            )
+
+    # Gesamtfilter anwenden
+    filtered = df_plot[
+        df_plot[color].astype(str).isin(sel_cats)
+        & df_plot[x].isin(sel_x)
+    ].copy()
+
+    # Quali normalisieren (nur wenn gewünscht)
+    if normalize_quali and color.lower() == "qualifikation":
+        mapping = {
             "elektriker": "Elektriker",
             "elektromonteur": "Elektriker",
             "elektrik": "Elektriker",
@@ -307,46 +360,19 @@ def bar_with_mean_interactive(
             "mechaikr": "Mechaniker",
             "mech": "Mechaniker",
         }
-        _q = df_use[color].astype(str).str.strip()
-        _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
-        df_use[color] = _q_norm
+        _q = filtered[color].astype(str).str.strip()
+        filtered[color] = _q.str.lower().map(mapping).fillna(_q)
 
-    # --- eigene Keys für UI-Elemente ---
-    base_key = key or f"{title}_{color}"
-    ms_key   = f"{base_key}__ms"
-    fig_key  = f"{base_key}__fig"
+    # Plot
+    fig = px.bar(filtered, x=x, y=y, color=color, barmode="stack", title=title, height=height)
 
-    # Multiselect für Kategorien
-    categories = sorted(pd.Series(df_use[color].astype(str).unique()).tolist())
-    default_sel = categories[:]
-    selected = st.multiselect(
-        "Kategorien im Diagramm und Ø berücksichtigen:",
-        options=categories,
-        default=default_sel,
-        key=ms_key
-    )
-
-    if not selected:
-        st.info("Bitte mindestens eine Kategorie auswählen.")
-        empty_fig = go.Figure()
-        empty_fig.update_layout(
-            title=title,
-            plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", height=height
-        )
-        st.plotly_chart(empty_fig, use_container_width=True, key=fig_key)
-        return
-
-    df_visible = df_use[df_use[color].astype(str).isin(selected)].copy()
-
-    fig = px.bar(df_visible, x=x, y=y, color=color, barmode="stack", title=title, height=height)
-
-    # Ø-Linie aus Auswahl
+    # dynamische Ø-Linie (auf Basis der gefilterten Daten)
     try:
-        mean_val = df_visible.groupby(x)[y].sum().mean()
-        xs = sorted(pd.Series(df_visible[x]).dropna().unique())
+        mean_val = filtered.groupby(x)[y].sum().mean()
+        xs = sorted(pd.Series(filtered[x]).dropna().unique())
         if len(xs) > 0 and pd.notna(mean_val):
             fig.add_trace(go.Scatter(
-                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø (aus Auswahl)",
+                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø (gefiltert)",
                 line=dict(dash="dash", width=2),
                 hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
             ))
@@ -357,16 +383,18 @@ def bar_with_mean_interactive(
     except Exception:
         pass
 
-    # Farben: Elektriker Signalrot, Mechaniker Grau
-    if fixed_colors is None:
-        fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
+    # feste Farben
+    fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
     fallback_palette = list(px.colors.qualitative.Bold)
 
     used = set()
     palette_idx = 0
     for tr in fig.data:
-        name = getattr(tr, "name", None)
-        if name == "Ø (aus Auswahl)":
+        if not hasattr(tr, "name"):
+            continue
+        name = tr.name
+        # Scatter-Linie nicht umfärben
+        if isinstance(tr, go.Scatter):
             continue
         if name in fixed_colors:
             tr.update(marker=dict(color=fixed_colors[name]))
@@ -379,34 +407,23 @@ def bar_with_mean_interactive(
             used.add(color_choice)
             palette_idx += 1
 
-    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
-                      font_color="#ffffff", legend_title_text=None)
+    fig.update_layout(
+        plot_bgcolor="#1a1a1a",
+        paper_bgcolor="#1a1a1a",
+        font_color="#ffffff",
+        legend_title_text=None
+    )
 
-    st.plotly_chart(fig, use_container_width=True, key=fig_key)
+    st.plotly_chart(fig, use_container_width=True, key=(key or f"fig_{title}"))
 
-# --- (Legacy) Plot Helper mit Ø-Linie (ohne Interaktivität) ---
-def bar_with_mean(df_plot, x, y, color, title, height=300):
-    fig = px.bar(df_plot, x=x, y=y, color=color, barmode="stack", title=title, height=height)
-    try:
-        mean_val = df_plot.groupby(x)[y].sum().mean()
-        xs = sorted(pd.Series(df_plot[x]).dropna().unique())
-        if len(xs) > 0 and pd.notna(mean_val):
-            fig.add_trace(go.Scatter(
-                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø pro Tag",
-                line=dict(dash="dash", width=2),
-                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
-            ))
-            fig.add_annotation(
-                x=xs[-1], y=mean_val, text=f"Ø {mean_val:.1f}",
-                showarrow=False, xanchor="left", yanchor="bottom", font=dict(color="#FFFFFF")
-            )
-    except Exception:
-        pass
-    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
-    return fig
-
-# --- Excel Write-back ---
+# --- Excel Write-back: Änderungen in ursprüngliche Tabelle zurückschreiben ---
 def write_back_to_excel_table(original_bytes: bytes, edited_df: pd.DataFrame, output_name: str) -> bytes:
+    """
+    Schreibt edited_df in die erste Excel-Tabelle (Als Tabelle formatiert).
+    - Nur Spalten, die in der Tabelle existieren, werden beschrieben.
+    - Tabellengröße (ref) wird auf die neue Zeilenzahl angepasst.
+    Gibt Bytes des aktualisierten Workbooks zurück.
+    """
     wb = load_workbook(io.BytesIO(original_bytes))
     ws = None
     table_obj = None
@@ -484,7 +501,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # 2) Write-back in Original-Tabelle
+        # 2) In ursprüngliche Excel-Tabelle zurückschreiben (wenn XLSX vorhanden)
         orig_bytes = st.session_state.get(f"file_bytes_{plan_label}")
         orig_name  = st.session_state.get(f"file_name_{plan_label}") or f"{plan_label}.xlsx"
         if orig_bytes:
@@ -537,23 +554,24 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
         col_bauraum, col_qualifikation = st.columns(2)
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
-            for i, df_plot in enumerate(bauraum_data):
+            for i, _df in enumerate(bauraum_data):
                 bar_with_mean_interactive(
-                    df_plot, x="Tag", y="Stunden", color="Bauraum",
+                    _df, x="Tag", y="Stunden", color="Bauraum",
                     title=titel_map[i], height=300, key=f"{bauraum_prefix}_{i}",
                     normalize_quali=False
                 )
 
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
-            for i, df_plot in enumerate(quali_data):
+            for i, _df in enumerate(quali_data):
                 bar_with_mean_interactive(
-                    df_plot, x="Tag", y="Stunden", color="Qualifikation",
+                    _df, x="Tag", y="Stunden", color="Qualifikation",
                     title=titel_map[i], height=300, key=f"{quali_prefix}_{i}",
-                    normalize_quali=True
+                    normalize_quali=True  # damit "Elektromonteur" => "Elektriker" etc.
                 )
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
+
 
 # ==============================
 # Tabs (dynamisch)
@@ -1128,3 +1146,4 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
