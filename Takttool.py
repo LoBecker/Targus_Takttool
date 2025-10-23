@@ -23,7 +23,6 @@ def check_password():
     def hash_password(password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
 
-    # mehrere gültige Passwörter
     valid_hashes = {
         hash_password("Targus2025!"),
         hash_password("Stadler2025!"),
@@ -148,8 +147,16 @@ def _read_first_excel_table(uploaded_or_bytes) -> pd.DataFrame:
 
     tables = []
     for ws in wb.worksheets:
-        for t in ws._tables.values():
-            tables.append((ws, t.ref))
+        # Kompatibel für verschiedene OpenPyXL-Versionen
+        tdict = {}
+        if hasattr(ws, "tables") and isinstance(ws.tables, dict):
+            tdict.update(ws.tables)
+        if hasattr(ws, "_tables") and isinstance(ws._tables, dict):
+            tdict.update(ws._tables)
+        for t in tdict.values():
+            ref = getattr(t, "ref", None)
+            if ref:
+                tables.append((ws, ref))
     if not tables:
         raise ValueError("NO_TABLE")
 
@@ -296,6 +303,27 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
+# --- Einfacher Bar-Helper (für Export-Tab) ---
+def bar_with_mean(df_plot, x, y, color, title, height=300):
+    fig = px.bar(df_plot, x=x, y=y, color=color, barmode="stack", title=title, height=height)
+    try:
+        mean_val = df_plot.groupby(x)[y].sum().mean()
+        xs = sorted(pd.Series(df_plot[x]).dropna().unique())
+        if len(xs) > 0 and pd.notna(mean_val):
+            fig.add_trace(go.Scatter(
+                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø pro Tag",
+                line=dict(dash="dash", width=2),
+                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
+            ))
+            fig.add_annotation(
+                x=xs[-1], y=mean_val, text=f"Ø {mean_val:.1f}",
+                showarrow=False, xanchor="left", yanchor="bottom", font=dict(color="#FFFFFF")
+            )
+    except Exception:
+        pass
+    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
+    return fig
+
 # --- Interaktiver Plot Helper mit dynamischer Ø-Linie ---
 def bar_with_mean_interactive(
     df_plot: pd.DataFrame,
@@ -310,7 +338,7 @@ def bar_with_mean_interactive(
     """
     Interaktives, gestapeltes Balkendiagramm mit dynamischer Ø-Linie.
     - Nur Kategorie-Filter (Multiselect) – KEIN X-Achsen-Filter mehr.
-    - Filter sitzt oberhalb des Charts und nutzt die volle Breite (gleich breit wie das Diagramm).
+    - Filter sitzt oberhalb des Charts und nutzt die volle Breite.
     - Ø-Linie basiert auf dem gefilterten Datensatz.
     - Feste Farben: Elektriker = #a52019, Mechaniker = #9CA3AF, Rest: kontrastreiche Palette.
     """
@@ -318,21 +346,19 @@ def bar_with_mean_interactive(
         st.info("Keine Daten für Diagramm.")
         return
 
-    # --- Kategorie-Filter in voller Breite (oberhalb des Charts) ---
+    # Kategorie-Filter (vollbreit)
     categories = sorted(df_plot[color].dropna().astype(str).unique())
     sel_cats = st.multiselect(
         "Kategorien auswählen",
         options=categories,
         default=categories,
         key=(key + "_cats") if key else None,
-        # wenn du das Label ausblenden willst:
-        # label_visibility="collapsed",
+        label_visibility="collapsed",
     )
 
-    # Nur nach Kategorien filtern (kein X-Filter mehr)
     filtered = df_plot[df_plot[color].astype(str).isin(sel_cats)].copy()
 
-    # Optional: Qualifikation normalisieren
+    # Optional normalisieren
     if normalize_quali and color.lower() == "qualifikation":
         mapping = {
             "elektriker": "Elektriker",
@@ -346,10 +372,9 @@ def bar_with_mean_interactive(
         _q = filtered[color].astype(str).str.strip()
         filtered[color] = _q.str.lower().map(mapping).fillna(_q)
 
-    # Plot erstellen
     fig = px.bar(filtered, x=x, y=y, color=color, barmode="stack", title=title, height=height)
 
-    # Dynamische Ø-Linie auf Basis der gefilterten Daten
+    # Dynamische Ø-Linie basierend auf gefilterten Daten
     try:
         mean_val = filtered.groupby(x)[y].sum().mean()
         xs = sorted(pd.Series(filtered[x]).dropna().unique())
@@ -366,14 +391,11 @@ def bar_with_mean_interactive(
     except Exception:
         pass
 
-    # Feste Farben + kontrastreiche Fallback-Palette
-    fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}  # Signalrot & Grau
+    # Feste Farben + Fallback
+    fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
     fallback_palette = list(px.colors.qualitative.Bold)
-
-    used = set()
-    palette_idx = 0
+    used = set(); palette_idx = 0
     for tr in fig.data:
-        # Ø-Linie (Scatter) nicht anfassen
         if isinstance(tr, go.Scatter) or not hasattr(tr, "name"):
             continue
         name = tr.name
@@ -388,34 +410,38 @@ def bar_with_mean_interactive(
             used.add(color_choice)
             palette_idx += 1
 
-    fig.update_layout(
-        plot_bgcolor="#1a1a1a",
-        paper_bgcolor="#1a1a1a",
-        font_color="#ffffff",
-        legend_title_text=None
-    )
-
+    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
     st.plotly_chart(fig, use_container_width=True, key=(key or f"fig_{title}"))
 
-# --- Excel Write-back: Änderungen in ursprüngliche Tabelle zurückschreiben ---
+# --- Excel Write-back: robust gegen 'str'.ref ---
+def _resolve_first_table(ws):
+    # kompatible Ermittlung der ersten ListObject-Tabelle
+    if hasattr(ws, "tables") and isinstance(ws.tables, dict) and ws.tables:
+        return next(iter(ws.tables.values()))
+    if hasattr(ws, "_tables") and isinstance(ws._tables, dict) and ws._tables:
+        # _tables kann dict(name->Table) sein
+        first = next(iter(ws._tables.values()))
+        if hasattr(first, "ref"):
+            return first
+    return None
+
 def write_back_to_excel_table(original_bytes: bytes, edited_df: pd.DataFrame, output_name: str) -> bytes:
     """
     Schreibt edited_df in die erste Excel-Tabelle (Als Tabelle formatiert).
     - Nur Spalten, die in der Tabelle existieren, werden beschrieben.
     - Tabellengröße (ref) wird auf die neue Zeilenzahl angepasst.
-    Gibt Bytes des aktualisierten Workbooks zurück.
     """
-    wb = load_workbook(io.BytesIO(original_bytes))
+    wb = load_workbook(io.BytesIO(original_bytes), data_only=False)
     ws = None
     table_obj = None
     for sheet in wb.worksheets:
-        if sheet._tables:
-            name, tbl = list(sheet._tables.items())[0]
+        t = _resolve_first_table(sheet)
+        if t is not None and hasattr(t, "ref"):
             ws = sheet
-            table_obj = tbl
+            table_obj = t
             break
     if ws is None or table_obj is None:
-        raise ValueError("Keine Excel-Tabelle gefunden.")
+        raise ValueError("Keine Excel-Tabelle gefunden. Bitte Bereich in Excel als 'Tabelle' formatieren (Einfügen → Tabelle).")
 
     min_col, min_row, max_col, max_row = range_boundaries(table_obj.ref)
     header_cells = [ws.cell(row=min_row, column=c).value for c in range(min_col, max_col + 1)]
@@ -425,20 +451,25 @@ def write_back_to_excel_table(original_bytes: bytes, edited_df: pd.DataFrame, ou
     for c in header:
         if c not in df_to_write.columns:
             df_to_write[c] = ""
-    df_to_write = df_to_write[header]
+    df_to_write = df_to_write[header] if header else df_to_write
 
     new_rows = len(df_to_write)
+    # falls header leer war, fallback auf vorhandene max_col
+    max_col_calc = min_col + len(header) - 1 if header else max_col
     new_max_row = min_row + new_rows
-    new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_max_row}"
+    new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col_calc)}{new_max_row}"
     table_obj.ref = new_ref
 
+    # Header schreiben
     for j, colname in enumerate(header, start=min_col):
         ws.cell(row=min_row, column=j, value=colname)
 
+    # alten Bereich leeren
     for r in range(min_row + 1, max_row + 1):
-        for c in range(min_col, max_col + 1):
+        for c in range(min_col, max_col_calc + 1):
             ws.cell(row=r, column=c, value=None)
 
+    # neue Daten schreiben
     for i, row in enumerate(df_to_write.itertuples(index=False), start=min_row + 1):
         for j, value in enumerate(row, start=min_col):
             ws.cell(row=i, column=j, value=value)
@@ -462,7 +493,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
     df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(tag_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
-    # gewünschte Spaltenreihenfolge in der Ansicht
+    # gewünschte Spaltenreihenfolge
     if not df_filtered.empty:
         df_filtered = order_columns_for_montage(df_filtered)
 
@@ -482,7 +513,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # 2) In ursprüngliche Excel-Tabelle zurückschreiben (wenn XLSX vorhanden)
+        # 2) In ursprüngliche Excel-Tabelle zurückschreiben
         orig_bytes = st.session_state.get(f"file_bytes_{plan_label}")
         orig_name  = st.session_state.get(f"file_name_{plan_label}") or f"{plan_label}.xlsx"
         if orig_bytes:
@@ -548,11 +579,10 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
                 bar_with_mean_interactive(
                     _df, x="Tag", y="Stunden", color="Qualifikation",
                     title=titel_map[i], height=300, key=f"{quali_prefix}_{i}",
-                    normalize_quali=True  # damit "Elektromonteur" => "Elektriker" etc.
+                    normalize_quali=True
                 )
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
-
 
 # ==============================
 # Tabs (dynamisch)
@@ -739,6 +769,7 @@ def build_pdf_report(pivot_rund: pd.DataFrame, balance_df: pd.DataFrame, overall
         story.append(Paragraph("<b>Gesamtbewertung</b>: " + overall_text, styles["Heading3"]))
         story.append(Spacer(1, 12))
 
+        # Tabelle 1: Pivot Rund (Aufgerundete FTE)
         story.append(Paragraph("Aufgerundete FTE pro Tag & Qualifikation", styles["Heading3"]))
         data1 = [ ["RelativerTag"] + list(pivot_rund.columns) ]
         for idx, row in pivot_rund.iterrows():
@@ -752,6 +783,7 @@ def build_pdf_report(pivot_rund: pd.DataFrame, balance_df: pd.DataFrame, overall
         story.append(t1)
         story.append(Spacer(1, 18))
 
+        # Tabelle 2: Balancing
         story.append(Paragraph("Balancing – Abweichung vom Durchschnitt", styles["Heading3"]))
         data2 = [list(balance_df.columns)]
         for _, r in balance_df.iterrows():
@@ -814,7 +846,7 @@ with tab_personal:
         min_value=1, max_value=24, step=1, key="fte_stunden"
     )
 
-    # --- NEU: Effizienzgrad 0-100%, beeinflusst FTE-Berechnung ---
+    # Effizienzgrad 0–100 %
     if "effizienz" not in st.session_state:
         st.session_state["effizienz"] = 100
     effizienz = st.slider(
@@ -823,7 +855,7 @@ with tab_personal:
         help="Wirkt auf die produktiven Stunden pro FTE pro Tag. Beispiel: 80% → 0,8 × Stunden pro FTE."
     )
     st.session_state["effizienz"] = effizienz
-    eff_faktor = max(effizienz / 100.0, 0.01)  # Schutz vor Division durch 0
+    eff_faktor = max(effizienz / 100.0, 0.01)
     effektive_fte_stunden = fte_basis * eff_faktor
     st.caption(f"Produktive Stunden pro FTE/Tag (mit Effizienz): **{effektive_fte_stunden:.2f} h**")
 
@@ -992,7 +1024,7 @@ with tab_personal:
         st.markdown("### Stundenbedarf pro Relativtag")
         df_plot = df_gesamt.groupby(["RelativerTag", "Qualifikation"])["Stunden"].sum().reset_index()
 
-        # Normalisierung (wie in Montage-Tab)
+        # Normalisierung (einheitliche Namen)
         quali_normalize = {
             "elektriker": "Elektriker",
             "elektrik": "Elektriker",
@@ -1007,7 +1039,6 @@ with tab_personal:
         df_plot = df_plot.copy()
         df_plot["Qualifikation"] = _q_norm
 
-        # Interaktives Diagramm (Farben fix)
         bar_with_mean_interactive(
             df_plot, x="RelativerTag", y="Stunden", color="Qualifikation",
             title="Stundenbedarf pro Relativtag (parallel ausgerichtet)",
@@ -1080,7 +1111,7 @@ with tab_export:
     st.markdown("### Transformierte Tabelle – Bedarf (aufgerundete FTE)")
     st.dataframe(pivot_rund)
 
-    # Optional: Total-FTE
+    # Optional: Total-FTE pro Tag mit Ø-Linie
     st.markdown("### Total-FTE pro Tag (mit Ø-Linie)")
     df_total = df_fte.groupby("RelativerTag", as_index=False)["FTE"].sum()
     df_total["Kategorie"] = "Total"
@@ -1127,5 +1158,3 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
-
-
