@@ -462,7 +462,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
             # --------- Normalisierung + feste Farben (ohne Grundfunktionen zu ändern) ----------
             quali_normalize = {
                 "elektriker": "Elektriker",
-                "Elekrtomonteur": "Elektriker",
+                "Elektromonteur": "Elektriker",
                 "mechaniker": "Mechaniker",
                 "mechaiker": "Mechaniker",
                 "mechaikr": "Mechaniker",
@@ -1099,5 +1099,6 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
 
 
