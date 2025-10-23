@@ -308,48 +308,31 @@ def bar_with_mean_interactive(
     normalize_quali: bool = False,
 ):
     """
-    Erstellt ein gestapeltes Balkendiagramm mit dynamischer Ø-Linie:
-    - Links erscheinen 2 Filter (Multiselect): Kategorien (Legendeneinträge) & x-Bucket.
-    - Die Ø-Linie basiert **immer** auf dem aktuell gefilterten Datenumfang.
-    - Feste Farben: Elektriker = Signalrot #a52019, Mechaniker = Grau #9CA3AF.
-    - Andere Kategorien bekommen eine kontrastreiche Fallback-Palette.
+    Interaktives, gestapeltes Balkendiagramm mit dynamischer Ø-Linie.
+    - Nur Kategorie-Filter (Multiselect) – KEIN X-Achsen-Filter mehr.
+    - Filter sitzt oberhalb des Charts und nutzt die volle Breite (gleich breit wie das Diagramm).
+    - Ø-Linie basiert auf dem gefilterten Datensatz.
+    - Feste Farben: Elektriker = #a52019, Mechaniker = #9CA3AF, Rest: kontrastreiche Palette.
     """
     if df_plot is None or df_plot.empty:
         st.info("Keine Daten für Diagramm.")
         return
 
-    col_filters, col_fig = st.columns([0.42, 1.58])
+    # --- Kategorie-Filter in voller Breite (oberhalb des Charts) ---
+    categories = sorted(df_plot[color].dropna().astype(str).unique())
+    sel_cats = st.multiselect(
+        "Kategorien auswählen",
+        options=categories,
+        default=categories,
+        key=(key + "_cats") if key else None,
+        # wenn du das Label ausblenden willst:
+        # label_visibility="collapsed",
+    )
 
-    with col_filters:
-        # Werte der Legende/Kategorie:
-        categories = sorted(df_plot[color].dropna().astype(str).unique())
-        sel_cats = st.multiselect(
-            "Kategorien auswählen",
-            options=categories,
-            default=categories,
-            key=(key + "_cats") if key else None,
-        )
+    # Nur nach Kategorien filtern (kein X-Filter mehr)
+    filtered = df_plot[df_plot[color].astype(str).isin(sel_cats)].copy()
 
-        # X-Achse Auswahl (z. B. bestimmte Tage)
-        x_values = sorted(pd.Series(df_plot[x]).dropna().unique().tolist())
-        if len(x_values) > 200:
-            # bei sehr langen Achsen nur Anzeige, kein Filter
-            sel_x = x_values
-        else:
-            sel_x = st.multiselect(
-                f"{x} auswählen",
-                options=x_values,
-                default=x_values,
-                key=(key + "_xvals") if key else None,
-            )
-
-    # Gesamtfilter anwenden
-    filtered = df_plot[
-        df_plot[color].astype(str).isin(sel_cats)
-        & df_plot[x].isin(sel_x)
-    ].copy()
-
-    # Quali normalisieren (nur wenn gewünscht)
+    # Optional: Qualifikation normalisieren
     if normalize_quali and color.lower() == "qualifikation":
         mapping = {
             "elektriker": "Elektriker",
@@ -363,10 +346,10 @@ def bar_with_mean_interactive(
         _q = filtered[color].astype(str).str.strip()
         filtered[color] = _q.str.lower().map(mapping).fillna(_q)
 
-    # Plot
+    # Plot erstellen
     fig = px.bar(filtered, x=x, y=y, color=color, barmode="stack", title=title, height=height)
 
-    # dynamische Ø-Linie (auf Basis der gefilterten Daten)
+    # Dynamische Ø-Linie auf Basis der gefilterten Daten
     try:
         mean_val = filtered.groupby(x)[y].sum().mean()
         xs = sorted(pd.Series(filtered[x]).dropna().unique())
@@ -383,19 +366,17 @@ def bar_with_mean_interactive(
     except Exception:
         pass
 
-    # feste Farben
-    fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
+    # Feste Farben + kontrastreiche Fallback-Palette
+    fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}  # Signalrot & Grau
     fallback_palette = list(px.colors.qualitative.Bold)
 
     used = set()
     palette_idx = 0
     for tr in fig.data:
-        if not hasattr(tr, "name"):
+        # Ø-Linie (Scatter) nicht anfassen
+        if isinstance(tr, go.Scatter) or not hasattr(tr, "name"):
             continue
         name = tr.name
-        # Scatter-Linie nicht umfärben
-        if isinstance(tr, go.Scatter):
-            continue
         if name in fixed_colors:
             tr.update(marker=dict(color=fixed_colors[name]))
             used.add(fixed_colors[name])
@@ -1146,4 +1127,5 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
 
