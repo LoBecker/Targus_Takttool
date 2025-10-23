@@ -277,7 +277,7 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
-# --- Plot Helper mit Ø-Linie ---
+# --- Plot Helper (alte Variante bleibt verfügbar) ---
 def bar_with_mean(df_plot, x, y, color, title, height=300):
     fig = px.bar(df_plot, x=x, y=y, color=color, barmode="stack", title=title, height=height)
     try:
@@ -297,6 +297,106 @@ def bar_with_mean(df_plot, x, y, color, title, height=300):
         pass
     fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
     return fig
+
+# --- Neue interaktive Variante mit dynamischer Ø-Linie ---
+def bar_with_mean_interactive(
+    df_plot: pd.DataFrame,
+    x: str,
+    y: str,
+    color: str,
+    title: str,
+    height: int = 300,
+    key: str = None,
+    fixed_colors: dict = None,
+    normalize_quali: bool = True,
+):
+    """
+    Interaktives gestapeltes Balkendiagramm (Plotly) mit Ø-Linie, die sich
+    an die per Multiselect gewählten Kategorien anpasst.
+    """
+    df_use = df_plot.copy()
+
+    # Quali normalisieren, damit Farben stabil sind
+    if normalize_quali and color == "Qualifikation":
+        quali_normalize = {
+            "elektriker": "Elektriker",
+            "elektromonteur": "Elektriker",
+            "elektrik": "Elektriker",
+            "mechaniker": "Mechaniker",
+            "mechaiker": "Mechaniker",
+            "mechaikr": "Mechaniker",
+            "mech": "Mechaniker",
+        }
+        _q = df_use[color].astype(str).str.strip()
+        _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
+        df_use[color] = _q_norm
+
+    # Multiselect basierend auf color-Kategorien
+    categories = sorted(pd.Series(df_use[color].astype(str).unique()).tolist())
+    default_sel = categories[:]
+    selected = st.multiselect(
+        "Kategorien im Diagramm und Ø berücksichtigen:",
+        options=categories,
+        default=default_sel,
+        key=(key or f"ms_{title}_{color}")
+    )
+
+    if not selected:
+        st.info("Bitte mindestens eine Kategorie auswählen.")
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            title=title,
+            plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", height=height
+        )
+        st.plotly_chart(empty_fig, use_container_width=True, key=(key or f"fig_{title}"))
+        return
+
+    df_visible = df_use[df_use[color].astype(str).isin(selected)].copy()
+
+    fig = px.bar(df_visible, x=x, y=y, color=color, barmode="stack", title=title, height=height)
+
+    try:
+        mean_val = df_visible.groupby(x)[y].sum().mean()
+        xs = sorted(pd.Series(df_visible[x]).dropna().unique())
+        if len(xs) > 0 and pd.notna(mean_val):
+            fig.add_trace(go.Scatter(
+                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø (aus Auswahl)",
+                line=dict(dash="dash", width=2),
+                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
+            ))
+            fig.add_annotation(
+                x=xs[-1], y=mean_val, text=f"Ø {mean_val:.1f}",
+                showarrow=False, xanchor="left", yanchor="bottom", font=dict(color="#FFFFFF")
+            )
+    except Exception:
+        pass
+
+    # Farben: Elektriker = Signalrot, Mechaniker = Grau
+    if fixed_colors is None:
+        fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
+    fallback_palette = list(px.colors.qualitative.Bold)
+
+    used = set()
+    palette_idx = 0
+    for tr in fig.data:
+        name = getattr(tr, "name", None)
+        if name == "Ø (aus Auswahl)":
+            continue
+        if name in fixed_colors:
+            tr.update(marker=dict(color=fixed_colors[name]))
+            used.add(fixed_colors[name])
+        else:
+            while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
+                palette_idx += 1
+            color_choice = fallback_palette[palette_idx % len(fallback_palette)]
+            tr.update(marker=dict(color=color_choice))
+            used.add(color_choice)
+            palette_idx += 1
+
+    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+                      font_color="#ffffff", legend_title_text=None)
+
+    st.plotly_chart(fig, use_container_width=True, key=(key or f"fig_{title}"))
 
 # --- Excel Write-back ---
 def write_back_to_excel_table(original_bytes: bytes, edited_df: pd.DataFrame, output_name: str) -> bytes:
@@ -428,50 +528,23 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                fig = bar_with_mean(df_plot, x="Tag", y="Stunden", color="Bauraum", title=titel_map[i], height=300)
-                st.plotly_chart(fig, use_container_width=True, key=f"{bauraum_prefix}_{i}")
+                if df_plot.empty:
+                    continue
+                bar_with_mean_interactive(
+                    df_plot, x="Tag", y="Stunden", color="Bauraum",
+                    title=titel_map[i], height=300, key=f"{bauraum_prefix}_{i}",
+                    normalize_quali=False  # hier nicht nötig
+                )
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
-
-            # Normalisierung + feste Farben (Elektriker = Rot #a52019, Mechaniker = Grau #9CA3AF)
-            quali_normalize = {
-                "elektriker": "Elektriker",
-                "elektromonteur": "Elektriker",
-                "mechaniker": "Mechaniker",
-                "mechaiker": "Mechaniker",
-                "mechaikr": "Mechaniker",
-                "mech": "Mechaniker",
-            }
-            fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
-            fallback_palette = list(px.colors.qualitative.Bold)
-
             for i, df_plot in enumerate(quali_data):
                 if df_plot.empty:
                     continue
-
-                _q = df_plot["Qualifikation"].astype(str).str.strip()
-                _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
-                df_plot = df_plot.copy()
-                df_plot["Qualifikation"] = _q_norm
-
-                fig = bar_with_mean(df_plot, x="Tag", y="Stunden", color="Qualifikation", title=titel_map[i], height=300)
-
-                used = set()
-                palette_idx = 0
-                for tr in fig.data:
-                    name = getattr(tr, "name", None)
-                    if name in fixed_colors:
-                        tr.update(marker=dict(color=fixed_colors[name]))
-                        used.add(fixed_colors[name])
-                    else:
-                        while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
-                            palette_idx += 1
-                        color_choice = fallback_palette[palette_idx % len(fallback_palette)]
-                        tr.update(marker=dict(color=color_choice))
-                        used.add(color_choice)
-                        palette_idx += 1
-
-                st.plotly_chart(fig, use_container_width=True, key=f"{quali_prefix}_{i}")
+                bar_with_mean_interactive(
+                    df_plot, x="Tag", y="Stunden", color="Qualifikation",
+                    title=titel_map[i], height=300, key=f"{quali_prefix}_{i}",
+                    normalize_quali=True
+                )
     else:
         st.info("Keine Daten für Statistiken vorhanden.")
 
@@ -487,8 +560,6 @@ montage_tabs = tabs[1:-2]
 
 # --- Einrichtung ---
 with tab_setup:
-
-    # Plan-Typen anpassen (dynamisch)
     types_csv = st.text_input(
         "Plan-Typen (kommagetrennt):",
         value=", ".join(st.session_state["plan_types"]),
@@ -736,18 +807,16 @@ with tab_personal:
         min_value=1, max_value=24, step=1, key="fte_stunden"
     )
 
-    # NEU: Effizienzgrad berücksichtigt die Produktivität in % (1–100)
-    effizienz_grad = st.number_input(
+    # Neu: Effizienzgrad (0-100 %) -> skaliert verfügbare FTE-Stunden
+    if "effizienz_prozent" not in st.session_state:
+        st.session_state["effizienz_prozent"] = 100
+    effizienz_prozent = st.number_input(
         "Effizienzgrad (%)",
-        min_value=1, max_value=100,
-        value=st.session_state.get("effizienz_grad", 100),
-        step=1,
-        key="effizienz_grad",
-        help="Produktivitätsfaktor: 100% = voll produktiv, 80% = 1 FTE leistet 80% seiner Stunden."
+        min_value=1, max_value=100, value=st.session_state["effizienz_prozent"], step=1,
+        help="Wirkt auf verfügbare FTE-Stunden pro Tag. 100% = volle Stunden."
     )
-    effektive_fte_stunden = max(0.01, float(fte_basis) * (float(effizienz_grad) / 100.0))  # Safety gegen 0
-
-    st.caption(f" Effektive FTE-Stunden/Tag: **{effektive_fte_stunden:.2f} h** (Basis {fte_basis} h × Effizienz {effizienz_grad} %)")
+    st.session_state["effizienz_prozent"] = effizienz_prozent
+    effektive_fte_stunden = max(0.0001, fte_basis * (effizienz_prozent / 100.0))
 
     st.markdown("### Auswahl des Montageplans pro Wagenkasten")
     wagen_count = int(st.session_state["num_wagen"])
@@ -762,7 +831,7 @@ with tab_personal:
             key=f"plan_select_{wk}"
         )
 
-    # Checkbox-Matrix im Form (kein Rerun pro Klick)
+    # Checkbox-Matrix
     with st.form("belegung_form", clear_on_submit=False):
         st.markdown("### Belegung der MAP-Tage über Checkbox-Matrix")
         header_cols = st.columns([1] + [1] * len(wagenkästen))
@@ -781,7 +850,6 @@ with tab_personal:
         btn_autofill = st.form_submit_button("Block aus erstem Häkchen füllen")
         btn_berechne = st.form_submit_button("Berechne Personalbedarf")
 
-    # Autofill
     if btn_autofill:
         for wk_idx, wk in enumerate(wagenkästen):
             selected = [t for t in tag_map_liste if st.session_state.get(f"wk{wk_idx}_tag{t}", False)]
@@ -795,7 +863,6 @@ with tab_personal:
                 st.session_state[f"wk{wk_idx}_tag{t}"] = True
         st.rerun()
 
-    # Berechnung
     if btn_berechne:
         zuordnung = {tag_map: [] for tag_map in tag_map_liste}
         for wk_idx, wk in enumerate(wagenkästen):
@@ -911,67 +978,23 @@ with tab_personal:
                      .sort_index(axis=1))
             st.dataframe(pivot)
 
-        # --- Diagramme mit Ø-Linie ---
+        # --- Diagramme mit dynamischer Ø-Linie ---
         st.markdown("### Stundenbedarf pro Relativtag")
         df_plot = df_gesamt.groupby(["RelativerTag", "Qualifikation"])["Stunden"].sum().reset_index()
-
-        quali_normalize = {
-            "elektriker": "Elektriker",
-            "elektromonteur": "Elektriker",
-            "elektrik": "Elektriker",
-            "mechaniker": "Mechaniker",
-            "mechaiker": "Mechaniker",
-            "mechaikr": "Mechaniker",
-            "mech": "Mechaniker",
-        }
-        fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
-        fallback_palette = list(px.colors.qualitative.Bold)
-
-        _q = df_plot["Qualifikation"].astype(str).str.strip()
-        _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
-        df_plot = df_plot.copy()
-        df_plot["Qualifikation"] = _q_norm
-
-        fig_stunden = bar_with_mean(df_plot, x="RelativerTag", y="Stunden", color="Qualifikation",
-                                    title="Stundenbedarf pro Relativtag (parallel ausgerichtet)")
-        used = set(); palette_idx = 0
-        for tr in fig_stunden.data:
-            name = getattr(tr, "name", None)
-            if name in fixed_colors:
-                tr.update(marker=dict(color=fixed_colors[name]))
-                used.add(fixed_colors[name])
-            else:
-                while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
-                    palette_idx += 1
-                color_choice = fallback_palette[palette_idx % len(fallback_palette)]
-                tr.update(marker=dict(color=color_choice))
-                used.add(color_choice)
-                palette_idx += 1
-
-        st.plotly_chart(fig_stunden, use_container_width=True)
+        bar_with_mean_interactive(
+            df_plot, x="RelativerTag", y="Stunden", color="Qualifikation",
+            title="Stundenbedarf pro Relativtag (parallel ausgerichtet)",
+            height=350, key="stunden_relativtag", normalize_quali=True
+        )
 
         st.markdown("### FTE-Bedarf pro Relativtag")
         df_fte = df_plot.copy()
-        # HIER: Effizienz wird berücksichtigt
         df_fte["FTE"] = df_fte["Stunden"] / effektive_fte_stunden
-
-        fig_fte = bar_with_mean(df_fte, x="RelativerTag", y="FTE", color="Qualifikation",
-                                title="FTE pro Relativtag (mit Ø-Linie, Effizienz berücksichtigt)")
-        used = set(); palette_idx = 0
-        for tr in fig_fte.data:
-            name = getattr(tr, "name", None)
-            if name in fixed_colors:
-                tr.update(marker=dict(color=fixed_colors[name]))
-                used.add(fixed_colors[name])
-            else:
-                while palette_idx < len(fallback_palette) and fallback_palette[palette_idx] in used:
-                    palette_idx += 1
-                color_choice = fallback_palette[palette_idx % len(fallback_palette)]
-                tr.update(marker=dict(color=color_choice))
-                used.add(color_choice)
-                palette_idx += 1
-
-        st.plotly_chart(fig_fte, use_container_width=True)
+        bar_with_mean_interactive(
+            df_fte, x="RelativerTag", y="FTE", color="Qualifikation",
+            title="FTE pro Relativtag (mit Ø-Linie, dynamisch)",
+            height=350, key="fte_relativtag", normalize_quali=True
+        )
 
         st.markdown("### Aufgerundete FTE je Relativtag & Qualifikation")
         df_rund = df_fte.copy()
@@ -979,7 +1002,7 @@ with tab_personal:
         df_rund = df_rund[["RelativerTag", "Qualifikation", "Aufgerundete FTE"]]
         st.dataframe(df_rund)
 
-        # --- Balancing (Abweichung vom Durchschnitt pro Tag) ---
+        # --- Balancing ---
         day_total_fte = df_fte.groupby("RelativerTag")["FTE"].sum().reset_index(name="Total FTE")
         mean_total = day_total_fte["Total FTE"].mean() if not day_total_fte.empty else 0.0
         day_total_fte["Ø Total FTE"] = mean_total
@@ -1022,22 +1045,20 @@ with tab_export:
     balance_df = st.session_state["pp_balance_df"].copy()
     overall_text = st.session_state["pp_overall_txt"]
 
-    # Pivot: Aufgerundete FTE pro Tag & Qualifikation
     pivot_rund = df_rund.pivot_table(index="RelativerTag", columns="Qualifikation",
                                      values="Aufgerundete FTE", aggfunc="sum", fill_value=0).sort_index()
     st.markdown("### Transformierte Tabelle – Bedarf (aufgerundete FTE)")
     st.dataframe(pivot_rund)
 
-    # Optional: Gesamt-FTE mit Ø-Linie
     st.markdown("### Total-FTE pro Tag (mit Ø-Linie)")
     df_total = df_fte.groupby("RelativerTag", as_index=False)["FTE"].sum()
     df_total["Kategorie"] = "Total"
+    # hier reicht die einfache Variante
     fig_total = bar_with_mean(df_total.rename(columns={"FTE": "Wert"}),
                               x="RelativerTag", y="Wert", color="Kategorie",
                               title="Total-FTE pro Relativtag (mit Ø-Linie)", height=350)
     st.plotly_chart(fig_total, use_container_width=True)
 
-    # Download: Excel
     excel_buf = io.BytesIO()
     with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
         pivot_rund.to_excel(writer, sheet_name="FTE_aufgerundet")
@@ -1049,7 +1070,6 @@ with tab_export:
                        file_name="Personalplanung_Export.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-    # Download: PDF (wenn möglich)
     pdf_bytes = build_pdf_report(pivot_rund, balance_df.rename(columns={"Abweichung": "Abweichung", "Bewertung": "Bewertung"}), overall_text)
     if pdf_bytes:
         st.download_button("⬇️ Export als PDF", data=pdf_bytes, file_name="Personalplanung_Export.pdf", mime="application/pdf")
@@ -1075,4 +1095,3 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
-
