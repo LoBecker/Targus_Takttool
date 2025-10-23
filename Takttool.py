@@ -747,7 +747,7 @@ with tab_personal:
     )
     effektive_fte_stunden = max(0.01, float(fte_basis) * (float(effizienz_grad) / 100.0))  # Safety gegen 0
 
-    st.caption(f"👉 Effektive FTE-Stunden/Tag: **{effektive_fte_stunden:.2f} h** (Basis {fte_basis} h × Effizienz {effizienz_grad} %)")
+    st.caption(f" Effektive FTE-Stunden/Tag: **{effektive_fte_stunden:.2f} h** (Basis {fte_basis} h × Effizienz {effizienz_grad} %)")
 
     st.markdown("### Auswahl des Montageplans pro Wagenkasten")
     wagen_count = int(st.session_state["num_wagen"])
@@ -1075,3 +1075,4 @@ if __name__ == "__main__" and getattr(sys, 'frozen', False):
         webbrowser.open("http://localhost:8501")
     except Exception as e:
         print(f"Fehler beim Öffnen des Browsers: {e}")
+
