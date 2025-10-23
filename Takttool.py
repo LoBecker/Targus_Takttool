@@ -277,28 +277,7 @@ def zeige_logo_und_titel():
 
 zeige_logo_und_titel()
 
-# --- Plot Helper (alte Variante bleibt verfügbar) ---
-def bar_with_mean(df_plot, x, y, color, title, height=300):
-    fig = px.bar(df_plot, x=x, y=y, color=color, barmode="stack", title=title, height=height)
-    try:
-        mean_val = df_plot.groupby(x)[y].sum().mean()
-        xs = sorted(pd.Series(df_plot[x]).dropna().unique())
-        if len(xs) > 0 and pd.notna(mean_val):
-            fig.add_trace(go.Scatter(
-                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø pro Tag",
-                line=dict(dash="dash", width=2),
-                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
-            ))
-            fig.add_annotation(
-                x=xs[-1], y=mean_val, text=f"Ø {mean_val:.1f}",
-                showarrow=False, xanchor="left", yanchor="bottom", font=dict(color="#FFFFFF")
-            )
-    except Exception:
-        pass
-    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
-    return fig
-
-# --- Neue interaktive Variante mit dynamischer Ø-Linie ---
+# --- Interaktives Balkendiagramm mit Ø-Linie (aus Auswahl berechnet) ---
 def bar_with_mean_interactive(
     df_plot: pd.DataFrame,
     x: str,
@@ -311,12 +290,13 @@ def bar_with_mean_interactive(
     normalize_quali: bool = True,
 ):
     """
-    Interaktives gestapeltes Balkendiagramm (Plotly) mit Ø-Linie, die sich
-    an die per Multiselect gewählten Kategorien anpasst.
+    Interaktives gestapeltes Balkendiagramm (Plotly) mit Ø-Linie, die auf Basis
+    der per Multiselect gewählten Kategorien berechnet wird.
+    Vermeidet Duplicate Keys durch getrennte Suffixe.
     """
     df_use = df_plot.copy()
 
-    # Quali normalisieren, damit Farben stabil sind
+    # Qualifikation normalisieren (damit Farben stabil bleiben)
     if normalize_quali and color == "Qualifikation":
         quali_normalize = {
             "elektriker": "Elektriker",
@@ -331,14 +311,19 @@ def bar_with_mean_interactive(
         _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
         df_use[color] = _q_norm
 
-    # Multiselect basierend auf color-Kategorien
+    # --- eigene Keys für UI-Elemente ---
+    base_key = key or f"{title}_{color}"
+    ms_key   = f"{base_key}__ms"
+    fig_key  = f"{base_key}__fig"
+
+    # Multiselect für Kategorien
     categories = sorted(pd.Series(df_use[color].astype(str).unique()).tolist())
     default_sel = categories[:]
     selected = st.multiselect(
         "Kategorien im Diagramm und Ø berücksichtigen:",
         options=categories,
         default=default_sel,
-        key=(key or f"ms_{title}_{color}")
+        key=ms_key
     )
 
     if not selected:
@@ -348,13 +333,14 @@ def bar_with_mean_interactive(
             title=title,
             plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", height=height
         )
-        st.plotly_chart(empty_fig, use_container_width=True, key=(key or f"fig_{title}"))
+        st.plotly_chart(empty_fig, use_container_width=True, key=fig_key)
         return
 
     df_visible = df_use[df_use[color].astype(str).isin(selected)].copy()
 
     fig = px.bar(df_visible, x=x, y=y, color=color, barmode="stack", title=title, height=height)
 
+    # Ø-Linie aus Auswahl
     try:
         mean_val = df_visible.groupby(x)[y].sum().mean()
         xs = sorted(pd.Series(df_visible[x]).dropna().unique())
@@ -371,7 +357,7 @@ def bar_with_mean_interactive(
     except Exception:
         pass
 
-    # Farben: Elektriker = Signalrot, Mechaniker = Grau
+    # Farben: Elektriker Signalrot, Mechaniker Grau
     if fixed_colors is None:
         fixed_colors = {"Elektriker": "#a52019", "Mechaniker": "#9CA3AF"}
     fallback_palette = list(px.colors.qualitative.Bold)
@@ -396,7 +382,28 @@ def bar_with_mean_interactive(
     fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
                       font_color="#ffffff", legend_title_text=None)
 
-    st.plotly_chart(fig, use_container_width=True, key=(key or f"fig_{title}"))
+    st.plotly_chart(fig, use_container_width=True, key=fig_key)
+
+# --- (Legacy) Plot Helper mit Ø-Linie (ohne Interaktivität) ---
+def bar_with_mean(df_plot, x, y, color, title, height=300):
+    fig = px.bar(df_plot, x=x, y=y, color=color, barmode="stack", title=title, height=height)
+    try:
+        mean_val = df_plot.groupby(x)[y].sum().mean()
+        xs = sorted(pd.Series(df_plot[x]).dropna().unique())
+        if len(xs) > 0 and pd.notna(mean_val):
+            fig.add_trace(go.Scatter(
+                x=xs, y=[mean_val] * len(xs), mode="lines", name="Ø pro Tag",
+                line=dict(dash="dash", width=2),
+                hovertemplate=f"Ø: {mean_val:.2f}<extra></extra>"
+            ))
+            fig.add_annotation(
+                x=xs[-1], y=mean_val, text=f"Ø {mean_val:.1f}",
+                showarrow=False, xanchor="left", yanchor="bottom", font=dict(color="#FFFFFF")
+            )
+    except Exception:
+        pass
+    fig.update_layout(plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a", font_color="#ffffff", legend_title_text=None)
+    return fig
 
 # --- Excel Write-back ---
 def write_back_to_excel_table(original_bytes: bytes, edited_df: pd.DataFrame, output_name: str) -> bytes:
@@ -457,6 +464,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
     df["Tag"] = pd.to_numeric(df["Tag"], errors="coerce").fillna(tag_min).astype(int)
     df_filtered = df[df["Tag"].between(tag_range[0], tag_range[1])].copy()
 
+    # gewünschte Spaltenreihenfolge in der Ansicht
     if not df_filtered.empty:
         df_filtered = order_columns_for_montage(df_filtered)
 
@@ -465,6 +473,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
         st.markdown("<br><br><br>", unsafe_allow_html=True)
         edited_df = st.data_editor(df_filtered, use_container_width=True, num_rows="dynamic", hide_index=True, key=editor_key)
 
+        # 1) Flache Excel-Kopie
         excel_buffer = io.BytesIO()
         edited_df.to_excel(excel_buffer, index=False, engine="openpyxl")
         excel_buffer.seek(0)
@@ -475,6 +484,7 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
+        # 2) Write-back in Original-Tabelle
         orig_bytes = st.session_state.get(f"file_bytes_{plan_label}")
         orig_name  = st.session_state.get(f"file_name_{plan_label}") or f"{plan_label}.xlsx"
         if orig_bytes:
@@ -528,18 +538,15 @@ def render_montage_tab(df: pd.DataFrame, plan_label: str, slider_key: str, edito
         with col_bauraum:
             st.markdown("### Stunden nach Bauraum")
             for i, df_plot in enumerate(bauraum_data):
-                if df_plot.empty:
-                    continue
                 bar_with_mean_interactive(
                     df_plot, x="Tag", y="Stunden", color="Bauraum",
                     title=titel_map[i], height=300, key=f"{bauraum_prefix}_{i}",
-                    normalize_quali=False  # hier nicht nötig
+                    normalize_quali=False
                 )
+
         with col_qualifikation:
             st.markdown("### Stunden nach Qualifikation")
             for i, df_plot in enumerate(quali_data):
-                if df_plot.empty:
-                    continue
                 bar_with_mean_interactive(
                     df_plot, x="Tag", y="Stunden", color="Qualifikation",
                     title=titel_map[i], height=300, key=f"{quali_prefix}_{i}",
@@ -556,10 +563,11 @@ tabs = st.tabs(labels)
 tab_setup = tabs[0]
 tab_personal = tabs[-2]
 tab_export  = tabs[-1]
-montage_tabs = tabs[1:-2]
+montage_tabs = tabs[1:-2]  # aligns with plan_types order
 
 # --- Einrichtung ---
 with tab_setup:
+    # Plan-Typen anpassen (dynamisch)
     types_csv = st.text_input(
         "Plan-Typen (kommagetrennt):",
         value=", ".join(st.session_state["plan_types"]),
@@ -733,7 +741,7 @@ def build_pdf_report(pivot_rund: pd.DataFrame, balance_df: pd.DataFrame, overall
         story.append(Spacer(1, 12))
 
         story.append(Paragraph("Aufgerundete FTE pro Tag & Qualifikation", styles["Heading3"]))
-        data1 = [["RelativerTag"] + list(pivot_rund.columns)]
+        data1 = [ ["RelativerTag"] + list(pivot_rund.columns) ]
         for idx, row in pivot_rund.iterrows():
             data1.append([idx] + [int(x) for x in row.tolist()])
         t1 = Table(data1)
@@ -807,16 +815,18 @@ with tab_personal:
         min_value=1, max_value=24, step=1, key="fte_stunden"
     )
 
-    # Neu: Effizienzgrad (0-100 %) -> skaliert verfügbare FTE-Stunden
-    if "effizienz_prozent" not in st.session_state:
-        st.session_state["effizienz_prozent"] = 100
-    effizienz_prozent = st.number_input(
-        "Effizienzgrad (%)",
-        min_value=1, max_value=100, value=st.session_state["effizienz_prozent"], step=1,
-        help="Wirkt auf verfügbare FTE-Stunden pro Tag. 100% = volle Stunden."
+    # --- NEU: Effizienzgrad 0-100%, beeinflusst FTE-Berechnung ---
+    if "effizienz" not in st.session_state:
+        st.session_state["effizienz"] = 100
+    effizienz = st.slider(
+        "Effizienzgrad der Mitarbeitenden (%)",
+        min_value=50, max_value=100, value=st.session_state["effizienz"], step=5,
+        help="Wirkt auf die produktiven Stunden pro FTE pro Tag. Beispiel: 80% → 0,8 × Stunden pro FTE."
     )
-    st.session_state["effizienz_prozent"] = effizienz_prozent
-    effektive_fte_stunden = max(0.0001, fte_basis * (effizienz_prozent / 100.0))
+    st.session_state["effizienz"] = effizienz
+    eff_faktor = max(effizienz / 100.0, 0.01)  # Schutz vor Division durch 0
+    effektive_fte_stunden = fte_basis * eff_faktor
+    st.caption(f"Produktive Stunden pro FTE/Tag (mit Effizienz): **{effektive_fte_stunden:.2f} h**")
 
     st.markdown("### Auswahl des Montageplans pro Wagenkasten")
     wagen_count = int(st.session_state["num_wagen"])
@@ -863,6 +873,7 @@ with tab_personal:
                 st.session_state[f"wk{wk_idx}_tag{t}"] = True
         st.rerun()
 
+    # Berechnung
     if btn_berechne:
         zuordnung = {tag_map: [] for tag_map in tag_map_liste}
         for wk_idx, wk in enumerate(wagenkästen):
@@ -978,22 +989,41 @@ with tab_personal:
                      .sort_index(axis=1))
             st.dataframe(pivot)
 
-        # --- Diagramme mit dynamischer Ø-Linie ---
+        # --- Diagramme mit Ø-Linie ---
         st.markdown("### Stundenbedarf pro Relativtag")
         df_plot = df_gesamt.groupby(["RelativerTag", "Qualifikation"])["Stunden"].sum().reset_index()
+
+        # Normalisierung (wie in Montage-Tab)
+        quali_normalize = {
+            "elektriker": "Elektriker",
+            "elektrik": "Elektriker",
+            "elektromonteur": "Elektriker",
+            "mechaniker": "Mechaniker",
+            "mechaiker": "Mechaniker",
+            "mechaikr": "Mechaniker",
+            "mech": "Mechaniker",
+        }
+        _q = df_plot["Qualifikation"].astype(str).str.strip()
+        _q_norm = _q.str.lower().map(quali_normalize).fillna(_q)
+        df_plot = df_plot.copy()
+        df_plot["Qualifikation"] = _q_norm
+
+        # Interaktives Diagramm (Farben fix)
         bar_with_mean_interactive(
             df_plot, x="RelativerTag", y="Stunden", color="Qualifikation",
             title="Stundenbedarf pro Relativtag (parallel ausgerichtet)",
-            height=350, key="stunden_relativtag", normalize_quali=True
+            height=350, key="pp_stunden_interactive"
         )
 
         st.markdown("### FTE-Bedarf pro Relativtag")
         df_fte = df_plot.copy()
-        df_fte["FTE"] = df_fte["Stunden"] / effektive_fte_stunden
+        # Effizienz einrechnen
+        df_fte["FTE"] = df_fte["Stunden"] / max(effektive_fte_stunden, 0.01)
+
         bar_with_mean_interactive(
             df_fte, x="RelativerTag", y="FTE", color="Qualifikation",
-            title="FTE pro Relativtag (mit Ø-Linie, dynamisch)",
-            height=350, key="fte_relativtag", normalize_quali=True
+            title="FTE pro Relativtag (mit Ø-Linie, Effizienz berücksichtigt)",
+            height=350, key="pp_fte_interactive"
         )
 
         st.markdown("### Aufgerundete FTE je Relativtag & Qualifikation")
@@ -1024,7 +1054,7 @@ with tab_personal:
         st.info(f"**Gesamtbewertung Balancing:** {overall_text}  \n"
                 "Schwellen: <70 % nicht möglich · ≥80 % gut · ≥90 % hervorragend")
 
-        # --- Ergebnisse für Export merken ---
+        # Ergebnisse für Export merken
         st.session_state["pp_df_gesamt"]   = df_gesamt
         st.session_state["pp_df_plot"]     = df_plot
         st.session_state["pp_df_fte"]      = df_fte
@@ -1045,20 +1075,22 @@ with tab_export:
     balance_df = st.session_state["pp_balance_df"].copy()
     overall_text = st.session_state["pp_overall_txt"]
 
+    # Pivot: Aufgerundete FTE pro Tag & Qualifikation
     pivot_rund = df_rund.pivot_table(index="RelativerTag", columns="Qualifikation",
                                      values="Aufgerundete FTE", aggfunc="sum", fill_value=0).sort_index()
     st.markdown("### Transformierte Tabelle – Bedarf (aufgerundete FTE)")
     st.dataframe(pivot_rund)
 
+    # Optional: Total-FTE
     st.markdown("### Total-FTE pro Tag (mit Ø-Linie)")
     df_total = df_fte.groupby("RelativerTag", as_index=False)["FTE"].sum()
     df_total["Kategorie"] = "Total"
-    # hier reicht die einfache Variante
     fig_total = bar_with_mean(df_total.rename(columns={"FTE": "Wert"}),
                               x="RelativerTag", y="Wert", color="Kategorie",
                               title="Total-FTE pro Relativtag (mit Ø-Linie)", height=350)
     st.plotly_chart(fig_total, use_container_width=True)
 
+    # Download: Excel
     excel_buf = io.BytesIO()
     with pd.ExcelWriter(excel_buf, engine="openpyxl") as writer:
         pivot_rund.to_excel(writer, sheet_name="FTE_aufgerundet")
@@ -1070,6 +1102,7 @@ with tab_export:
                        file_name="Personalplanung_Export.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+    # Download: PDF (wenn möglich)
     pdf_bytes = build_pdf_report(pivot_rund, balance_df.rename(columns={"Abweichung": "Abweichung", "Bewertung": "Bewertung"}), overall_text)
     if pdf_bytes:
         st.download_button("⬇️ Export als PDF", data=pdf_bytes, file_name="Personalplanung_Export.pdf", mime="application/pdf")
